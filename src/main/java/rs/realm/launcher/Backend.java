@@ -126,7 +126,20 @@ public final class Backend {
                 Json.str(body, "display_name", displayName));
     }
 
-    /** Mints the one-shot token that authenticates the client. Valid for ~30 seconds. */
+    /**
+     * Takes a profile off this Discord account's list.
+     *
+     * Unlinks rather than deletes — the character and everything on it stay, but nothing points at
+     * it any more.
+     */
+    public void unlinkProfile(Profile profile) throws IOException {
+        send(
+                "POST",
+                "/auth/profiles/unlink",
+                Json.write(Map.of("login_username", profile.loginUsername())));
+    }
+
+    /** Mints the one-shot token that authenticates the client. */
     public String launchToken(Profile profile) throws IOException {
         Map<String, Object> body =
                 send(

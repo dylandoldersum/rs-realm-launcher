@@ -151,6 +151,15 @@ public final class Dropdown<T> extends JComponent {
         popup = new JWindow(owner);
         popup.setContentPane(list);
         popup.setFocusableWindowState(false);
+        // Without this the window's own opaque background fills the rounded corners — four white
+        // notches around a dark list. Per-pixel translucency lets the corners be genuinely absent
+        // rather than painted over; where the platform will not do it, matching the panel colour at
+        // least keeps them from being white.
+        if (translucencySupported()) {
+            popup.setBackground(TRANSPARENT);
+        } else {
+            popup.setBackground(Theme.PANEL);
+        }
 
         Point origin = getLocationOnScreen();
         popup.setBounds(origin.x, origin.y + getHeight() + 4, getWidth(), 1);
@@ -164,6 +173,21 @@ public final class Dropdown<T> extends JComponent {
         owner.addWindowFocusListener(dismissOnBlur);
 
         animate(fullHeight);
+    }
+
+    static final Color TRANSPARENT = new Color(0, 0, 0, 0);
+
+    /** Whether this desktop will honour a window with transparent pixels. */
+    static boolean translucencySupported() {
+        try {
+            return java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
+                    .getDefaultScreenDevice()
+                    .isWindowTranslucencySupported(
+                            java.awt.GraphicsDevice.WindowTranslucency.PERPIXEL_TRANSLUCENT);
+        } catch (Throwable t) {
+            // Headless or an unusual graphics stack. Falling back is always safe.
+            return false;
+        }
     }
 
     private void animate(int target) {

@@ -208,24 +208,17 @@ public final class LauncherFrame extends JFrame {
         // The chevron is what makes the avatar read as a menu rather than a decoration.
         accountChip.add(accountChevron);
 
-        JPopupMenu menu = new JPopupMenu();
-        JMenuItem link = new JMenuItem("Link an existing character...");
-        link.addActionListener(e -> showLinkCode());
-        menu.add(link);
-        JMenuItem password = new JMenuItem("Play with the password login");
-        password.setToolTipText("Starts the client with the old username/password screen.");
-        password.addActionListener(e -> playWithPasswordLogin());
-        menu.add(password);
-        menu.addSeparator();
-        JMenuItem signOut = new JMenuItem("Sign out");
-        signOut.addActionListener(e -> signOut());
-        menu.add(signOut);
-
         MouseAdapter open =
                 new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent e) {
-                        menu.show(accountChip, 0, accountChip.getHeight());
+                        new FlatMenu()
+                                .add("Link an existing character...", () -> showLinkCode())
+                                .add("Play with the password login", () -> playWithPasswordLogin())
+                                .addSeparator()
+                                .addDestructive("Remove this character...", () -> removeProfile())
+                                .add("Sign out", () -> signOut())
+                                .show(accountChip);
                     }
                 };
         accountChip.addMouseListener(open);
@@ -443,21 +436,19 @@ public final class LauncherFrame extends JFrame {
                     failure = e.getMessage();
                 }
                 if (code == null) {
-                    JOptionPane.showMessageDialog(
+                    Dialogs.message(
                             LauncherFrame.this,
-                            failure == null ? "Couldn't get a code." : failure,
                             "Link an existing character",
-                            JOptionPane.WARNING_MESSAGE);
+                            failure == null ? "Couldn't get a code." : failure);
                     return;
                 }
-                JOptionPane.showMessageDialog(
+                Dialogs.message(
                         LauncherFrame.this,
-                        "Log in on the character you want to link, then type:\n\n"
-                                + "    ::discord "
-                                + code
-                                + "\n\nThe code works once and expires in 10 minutes.",
                         "Link an existing character",
-                        JOptionPane.INFORMATION_MESSAGE);
+                        "Log in on the character you want to link, then type:\n\n"
+                                + "::discord "
+                                + code
+                                + "\n\nThe code works once and expires in 10 minutes.");
             }
         }.execute();
     }
@@ -629,10 +620,70 @@ public final class LauncherFrame extends JFrame {
         return characterBox.getSelected();
     }
 
+    /**
+     * Removes the selected character from this Discord account's list.
+     *
+     * The warning is blunt on purpose, because the consequence is: a launcher-made character has no
+     * usable password, so once nothing points at it, nothing reaches it. The character itself is not
+     * deleted — its levels and bank stay where they are — but from the player's side that is a
+     * distinction without a difference unless staff put the link back.
+     */
+    private void removeProfile() {
+        Backend.Profile profile = selectedProfile();
+        if (profile == null) {
+            return;
+        }
+        boolean confirmed =
+                Dialogs.confirm(
+                        this,
+                        "Remove " + profile.displayName() + "?",
+                        "This takes the character off your list. It is not deleted — its levels and "
+                                + "bank stay — but you will have no way back to it, because a character "
+                                + "made in the launcher has no password to log in with.\n\n"
+                                + "Only a staff member can put it back.",
+                        "Remove",
+                        true);
+        if (!confirmed) {
+            return;
+        }
+        new SwingWorker<Boolean, Void>() {
+            private String failure;
+
+            @Override
+            protected Boolean doInBackground() {
+                try {
+                    backend.unlinkProfile(profile);
+                    return true;
+                } catch (Exception e) {
+                    failure = e.getMessage();
+                    return false;
+                }
+            }
+
+            @Override
+            protected void done() {
+                boolean removed = false;
+                try {
+                    removed = Boolean.TRUE.equals(get());
+                } catch (Exception e) {
+                    failure = e.getMessage();
+                }
+                if (!removed) {
+                    Dialogs.message(
+                            LauncherFrame.this,
+                            "Couldn't remove it",
+                            failure == null ? "The server refused." : failure);
+                    return;
+                }
+                List<Backend.Profile> remaining = new ArrayList<>(profilesInBox);
+                remaining.remove(profile);
+                setProfiles(remaining);
+            }
+        }.execute();
+    }
+
     private void createProfile() {
-        String name =
-                JOptionPane.showInputDialog(
-                        this, "Character name", "New character", JOptionPane.PLAIN_MESSAGE);
+        String name = Dialogs.input(this, "New character", "What should it be called?");
         if (name == null || name.isBlank()) {
             return;
         }
@@ -659,11 +710,10 @@ public final class LauncherFrame extends JFrame {
                     failure = e.getMessage();
                 }
                 if (created == null) {
-                    JOptionPane.showMessageDialog(
+                    Dialogs.message(
                             LauncherFrame.this,
-                            failure == null ? "Couldn't create that character." : failure,
                             "New character",
-                            JOptionPane.WARNING_MESSAGE);
+                            failure == null ? "Couldn't create that character." : failure);
                     return;
                 }
                 List<Backend.Profile> all = new ArrayList<>(profilesInBox);
@@ -817,11 +867,7 @@ public final class LauncherFrame extends JFrame {
     private void play() {
         Backend.Profile profile = selectedProfile();
         if (profile == null) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Create a character first with the + button.",
-                    "No character",
-                    JOptionPane.INFORMATION_MESSAGE);
+            Dialogs.message(this, "No character", "Create one first with the + button.");
             return;
         }
         applyState(Phase.WORKING);
