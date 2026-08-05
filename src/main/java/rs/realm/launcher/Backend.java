@@ -72,6 +72,11 @@ public final class Backend {
                 Json.bool(body, "oauth_enabled", false));
     }
 
+    /** How many players are online right now. */
+    public int onlinePlayers() throws IOException {
+        return Json.number(send("GET", "/launcher/status", null), "players", 0);
+    }
+
     public List<News> news() throws IOException {
         Map<String, Object> body = send("GET", "/launcher/news", null);
         List<News> out = new ArrayList<>();

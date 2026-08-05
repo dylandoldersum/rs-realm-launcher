@@ -73,6 +73,7 @@ public final class LauncherFrame extends JFrame {
     private final NewsPanel newsPanel = new NewsPanel();
     private final JLabel statusLabel = new JLabel(" ", SwingConstants.CENTER);
     private final JLabel versionLabel = new JLabel(" ", SwingConstants.CENTER);
+    private final JLabel playerCountLabel = new JLabel(" ", SwingConstants.CENTER);
     private final JLabel accountName = new JLabel();
     private final JLabel accountAvatar = new JLabel();
     private final ChevronDown accountChevron = new ChevronDown();
@@ -102,7 +103,53 @@ public final class LauncherFrame extends JFrame {
         actionButton.addActionListener(e -> onAction());
 
         loadNews();
+        pollPlayerCount();
         restoreSession();
+    }
+
+    /**
+     * The "x people playing" line, refreshed while the launcher sits open.
+     *
+     * Polled rather than fetched once: this window stays open behind the game, and a number that
+     * froze at whatever it was when you opened it is worse than no number — it looks live and is
+     * not. A failed poll leaves the last good figure alone instead of blanking the line over one
+     * dropped request.
+     */
+    private void pollPlayerCount() {
+        refreshPlayerCount();
+        Timer timer = new Timer(PLAYER_COUNT_POLL_MILLIS, e -> refreshPlayerCount());
+        timer.setRepeats(true);
+        timer.start();
+    }
+
+    private void refreshPlayerCount() {
+        new SwingWorker<Integer, Void>() {
+            @Override
+            protected Integer doInBackground() {
+                try {
+                    return backend.onlinePlayers();
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+
+            @Override
+            protected void done() {
+                Integer count;
+                try {
+                    count = get();
+                } catch (Exception e) {
+                    count = null;
+                }
+                if (count == null) {
+                    return;
+                }
+                playerCountLabel.setText(
+                        count == 1
+                                ? "There is currently 1 person playing."
+                                : "There are currently " + count + " people playing.");
+            }
+        }.execute();
     }
 
     // ------------------------------------------------------------------------------ title bar ----
@@ -225,6 +272,13 @@ public final class LauncherFrame extends JFrame {
         side.add(statusLabel);
 
         side.add(Box.createVerticalGlue());
+
+        playerCountLabel.setForeground(Theme.GREEN_HOVER);
+        playerCountLabel.setFont(Theme.SMALL);
+        playerCountLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        playerCountLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 16));
+        side.add(playerCountLabel);
+        side.add(Box.createVerticalStrut(4));
 
         versionLabel.setForeground(Theme.SUBTEXT);
         versionLabel.setFont(Theme.SMALL);
@@ -848,6 +902,9 @@ public final class LauncherFrame extends JFrame {
             // no icon — fine
         }
     }
+
+    /** Half a minute. Often enough to feel live, rare enough to be nothing on the server. */
+    private static final int PLAYER_COUNT_POLL_MILLIS = 30_000;
 
     /** Discord's brand blurple, so the sign-in button reads as "this opens Discord". */
     private static final Color DISCORD = new Color(0x58, 0x65, 0xF2);

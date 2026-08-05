@@ -5,7 +5,11 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -13,11 +17,14 @@ import java.util.Locale;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.ScrollPaneConstants;
+import javax.swing.plaf.basic.BasicScrollBarUI;
 
 /**
  * The left column: whatever was posted in the announcements channel.
@@ -69,6 +76,7 @@ public final class NewsPanel extends JPanel {
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.getViewport().setBackground(Theme.BACKGROUND);
         scroll.getVerticalScrollBar().setUnitIncrement(18);
+        styleScrollBar(scroll.getVerticalScrollBar());
         add(scroll, BorderLayout.CENTER);
     }
 
@@ -204,5 +212,69 @@ public final class NewsPanel extends JPanel {
     @Override
     public Color getBackground() {
         return Theme.BACKGROUND;
+    }
+
+    /**
+     * Strips the scrollbar down to a thumb.
+     *
+     * Swing's default draws a track, a border and two arrow buttons — three pieces of chrome for
+     * something whose only job is to say where you are. Removing them means overriding the UI
+     * delegate rather than setting colours: the buttons are components the delegate creates, so the
+     * only way to be rid of them is to hand it zero-sized ones.
+     */
+    private static void styleScrollBar(JScrollBar bar) {
+        bar.setUI(
+                new BasicScrollBarUI() {
+                    @Override
+                    protected void configureScrollBarColors() {
+                        // One step up from the background, so it reads as a hint rather than a
+                        // control until you look for it.
+                        thumbColor = Theme.BORDER;
+                        trackColor = Theme.BACKGROUND;
+                    }
+
+                    @Override
+                    protected JButton createDecreaseButton(int orientation) {
+                        return zeroSized();
+                    }
+
+                    @Override
+                    protected JButton createIncreaseButton(int orientation) {
+                        return zeroSized();
+                    }
+
+                    @Override
+                    protected void paintTrack(Graphics g, JComponent c, Rectangle bounds) {
+                        g.setColor(Theme.BACKGROUND);
+                        g.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+                    }
+
+                    @Override
+                    protected void paintThumb(Graphics g, JComponent c, Rectangle bounds) {
+                        if (bounds.isEmpty() || !scrollbar.isEnabled()) {
+                            return;
+                        }
+                        Graphics2D g2 = (Graphics2D) g.create();
+                        g2.setRenderingHint(
+                                RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        g2.setColor(isThumbRollover() ? Theme.SUBTEXT : Theme.BORDER);
+                        int inset = 3;
+                        int width = bounds.width - inset * 2;
+                        g2.fillRoundRect(
+                                bounds.x + inset, bounds.y, Math.max(4, width), bounds.height, width, width);
+                        g2.dispose();
+                    }
+
+                    private JButton zeroSized() {
+                        JButton button = new JButton();
+                        button.setPreferredSize(new Dimension(0, 0));
+                        button.setMinimumSize(new Dimension(0, 0));
+                        button.setMaximumSize(new Dimension(0, 0));
+                        return button;
+                    }
+                });
+        bar.setPreferredSize(new Dimension(10, 0));
+        bar.setUnitIncrement(18);
+        bar.setOpaque(false);
     }
 }
