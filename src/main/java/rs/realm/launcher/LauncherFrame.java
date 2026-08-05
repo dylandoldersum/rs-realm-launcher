@@ -700,10 +700,13 @@ public final class LauncherFrame extends JFrame {
                 }
                 try {
                     GameClient.play(token, profile.displayName());
-                    statusLabel.setText("Launching...");
-                    Timer close = new Timer(1200, e -> System.exit(0));
-                    close.setRepeats(false);
-                    close.start();
+                    // The launcher stays open. Closing it would be the last word on a client that
+                    // has not finished starting — and it is also where you switch character, so
+                    // shutting it down means restarting it to play a second profile.
+                    statusLabel.setText("Started " + profile.displayName() + ".");
+                    Timer ready = new Timer(2500, e -> applyState(Phase.PLAY));
+                    ready.setRepeats(false);
+                    ready.start();
                 } catch (Exception e) {
                     statusLabel.setText("Couldn't launch: " + e.getMessage());
                     applyState(Phase.PLAY);
