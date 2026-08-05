@@ -75,10 +75,11 @@ public final class LauncherFrame extends JFrame {
     private final JLabel versionLabel = new JLabel(" ", SwingConstants.CENTER);
     private final JLabel accountName = new JLabel();
     private final JLabel accountAvatar = new JLabel();
+    private final ChevronDown accountChevron = new ChevronDown();
     private final JPanel accountChip = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
     private final RoundBar progress = new RoundBar();
     private final Theme.AccentButton actionButton = new Theme.AccentButton("Sign in with Discord");
-    private final JComboBox<Backend.Profile> characterBox = new JComboBox<>();
+    private final Dropdown<Backend.Profile> characterBox = new Dropdown<>(Backend.Profile::displayName);
     private final JPanel characterRow = new JPanel(new BorderLayout(8, 0));
 
     public LauncherFrame() {
@@ -157,6 +158,8 @@ public final class LauncherFrame extends JFrame {
         accountName.setFont(new Font("SansSerif", Font.PLAIN, 13));
         accountChip.add(accountName);
         accountChip.add(accountAvatar);
+        // The chevron is what makes the avatar read as a menu rather than a decoration.
+        accountChip.add(accountChevron);
 
         JPopupMenu menu = new JPopupMenu();
         JMenuItem link = new JMenuItem("Link an existing character...");
@@ -177,6 +180,7 @@ public final class LauncherFrame extends JFrame {
         accountChip.addMouseListener(open);
         accountName.addMouseListener(open);
         accountAvatar.addMouseListener(open);
+        accountChevron.addMouseListener(open);
         return accountChip;
     }
 
@@ -241,26 +245,15 @@ public final class LauncherFrame extends JFrame {
         wrapper.add(label);
         wrapper.add(Box.createVerticalStrut(6));
 
-        characterBox.setBackground(Theme.BACKGROUND);
-        characterBox.setForeground(Theme.TEXT);
-        characterBox.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        characterBox.setPreferredSize(new Dimension(0, 38));
-        characterBox.addActionListener(e -> rememberSelectedProfile());
+        characterBox.setPlaceholder("No characters yet");
+        characterBox.setOnSelect(profile -> rememberSelectedProfile());
 
-        JButton add = new JButton("+");
+        PlusButton add = new PlusButton(this::createProfile);
         add.setToolTipText("Create another character");
-        add.setFocusPainted(false);
-        add.setFont(new Font("SansSerif", Font.BOLD, 18));
-        add.setForeground(Theme.TEXT);
-        add.setBackground(Theme.BACKGROUND);
-        add.setBorder(BorderFactory.createLineBorder(Theme.BORDER, 1));
-        add.setPreferredSize(new Dimension(38, 38));
-        add.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        add.addActionListener(e -> createProfile());
 
         characterRow.setOpaque(false);
         characterRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        characterRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
+        characterRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
         characterRow.add(characterBox, BorderLayout.CENTER);
         characterRow.add(add, BorderLayout.EAST);
         wrapper.add(characterRow);
@@ -424,8 +417,10 @@ public final class LauncherFrame extends JFrame {
                 session.clear();
                 account = null;
                 accountChip.setVisible(false);
+                // Emptying the list first: setProfiles reveals the row, so hiding before it would
+                // be undone.
+                setProfiles(List.of());
                 characterWrapper.setVisible(false);
-                characterBox.setModel(new DefaultComboBoxModel<>());
                 statusLabel.setText(" ");
                 applyState(Phase.SIGNED_OUT);
             }
@@ -494,19 +489,19 @@ public final class LauncherFrame extends JFrame {
         }.execute();
     }
 
+    /** The current list, kept so adding a profile does not have to read it back off the dropdown. */
+    private List<Backend.Profile> profilesInBox = List.of();
+
     private void setProfiles(List<Backend.Profile> profiles) {
-        DefaultComboBoxModel<Backend.Profile> model = new DefaultComboBoxModel<>();
-        for (Backend.Profile profile : profiles) {
-            model.addElement(profile);
-        }
-        characterBox.setModel(model);
+        profilesInBox = List.copyOf(profiles);
+        characterBox.setItems(profiles);
         characterWrapper.setVisible(true);
 
         String last = session.lastProfile();
         if (last != null) {
-            for (int i = 0; i < model.getSize(); i++) {
-                if (model.getElementAt(i).loginUsername().equalsIgnoreCase(last)) {
-                    characterBox.setSelectedIndex(i);
+            for (Backend.Profile profile : profiles) {
+                if (profile.loginUsername().equalsIgnoreCase(last)) {
+                    characterBox.setSelected(profile);
                     break;
                 }
             }
@@ -521,8 +516,7 @@ public final class LauncherFrame extends JFrame {
     }
 
     private Backend.Profile selectedProfile() {
-        Object selected = characterBox.getSelectedItem();
-        return selected instanceof Backend.Profile profile ? profile : null;
+        return characterBox.getSelected();
     }
 
     private void createProfile() {
@@ -562,15 +556,12 @@ public final class LauncherFrame extends JFrame {
                             JOptionPane.WARNING_MESSAGE);
                     return;
                 }
-                List<Backend.Profile> all = new ArrayList<>();
-                DefaultComboBoxModel<Backend.Profile> model =
-                        (DefaultComboBoxModel<Backend.Profile>) characterBox.getModel();
-                for (int i = 0; i < model.getSize(); i++) {
-                    all.add(model.getElementAt(i));
-                }
+                List<Backend.Profile> all = new ArrayList<>(profilesInBox);
                 all.add(created);
+                profilesInBox = all;
                 setProfiles(all);
-                characterBox.setSelectedItem(created);
+                characterBox.setSelected(created);
+                rememberSelectedProfile();
             }
         }.execute();
     }
@@ -843,6 +834,78 @@ public final class LauncherFrame extends JFrame {
     private static final Color DISCORD_HOVER = new Color(0x6C, 0x78, 0xF5);
 
     // ------------------------------------------------------------------------------ components ----
+
+    /** The little arrow beside the avatar. Drawn, not a glyph — no font can be missing it. */
+    private static final class ChevronDown extends JComponent {
+        ChevronDown() {
+            setPreferredSize(new Dimension(14, 32));
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(Theme.SUBTEXT);
+            g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            int cx = getWidth() / 2;
+            int cy = getHeight() / 2;
+            g2.drawLine(cx - 4, cy - 2, cx, cy + 2);
+            g2.drawLine(cx, cy + 2, cx + 4, cy - 2);
+            g2.dispose();
+        }
+    }
+
+    /** The `+` beside the character dropdown, matching its rounded flat field. */
+    private static final class PlusButton extends JComponent {
+        private final Runnable action;
+        private boolean hovering;
+
+        PlusButton(Runnable action) {
+            this.action = action;
+            setPreferredSize(new Dimension(40, 40));
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            addMouseListener(
+                    new MouseAdapter() {
+                        @Override
+                        public void mouseEntered(MouseEvent e) {
+                            hovering = true;
+                            repaint();
+                        }
+
+                        @Override
+                        public void mouseExited(MouseEvent e) {
+                            hovering = false;
+                            repaint();
+                        }
+
+                        @Override
+                        public void mousePressed(MouseEvent e) {
+                            action.run();
+                        }
+                    });
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int w = getWidth();
+            int h = getHeight();
+            g2.setColor(Theme.BACKGROUND);
+            g2.fillRoundRect(0, 0, w - 1, h - 1, 8, 8);
+            g2.setColor(hovering ? Theme.GOLD : Theme.BORDER);
+            g2.drawRoundRect(0, 0, w - 1, h - 1, 8, 8);
+
+            g2.setColor(hovering ? Theme.GOLD : Theme.TEXT);
+            g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            int cx = w / 2;
+            int cy = h / 2;
+            g2.drawLine(cx - 6, cy, cx + 6, cy);
+            g2.drawLine(cx, cy - 6, cx, cy + 6);
+            g2.dispose();
+        }
+    }
 
     /** A vector-drawn minimize / close control (no glyph fonts → no encoding surprises). */
     private static final class WindowControl extends JComponent {
