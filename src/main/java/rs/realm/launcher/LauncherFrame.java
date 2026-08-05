@@ -165,6 +165,10 @@ public final class LauncherFrame extends JFrame {
         JMenuItem link = new JMenuItem("Link an existing character...");
         link.addActionListener(e -> showLinkCode());
         menu.add(link);
+        JMenuItem password = new JMenuItem("Play with the password login");
+        password.setToolTipText("Starts the client with the old username/password screen.");
+        password.addActionListener(e -> playWithPasswordLogin());
+        menu.add(password);
         menu.addSeparator();
         JMenuItem signOut = new JMenuItem("Sign out");
         signOut.addActionListener(e -> signOut());
@@ -402,6 +406,23 @@ public final class LauncherFrame extends JFrame {
                         JOptionPane.INFORMATION_MESSAGE);
             }
         }.execute();
+    }
+
+    /**
+     * Starts the client with no launch token, which brings back the username/password screen.
+     *
+     * The escape hatch for an account that has not been linked yet — and, less obviously, for any
+     * time the Discord side is the thing that is broken. Handing a token puts the gamepack into
+     * account mode, where there is no password field at all, so without this a player whose profile
+     * will not load has no way in.
+     */
+    private void playWithPasswordLogin() {
+        try {
+            GameClient.play();
+            statusLabel.setText("Started with the password login.");
+        } catch (Exception e) {
+            statusLabel.setText("Couldn't launch: " + e.getMessage());
+        }
     }
 
     private void signOut() {
