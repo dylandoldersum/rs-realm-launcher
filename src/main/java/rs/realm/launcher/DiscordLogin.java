@@ -64,23 +64,36 @@ public final class DiscordLogin {
             String query = exchange.getRequestURI().getRawQuery();
             String code = param(query, "code");
             String returnedState = param(query, "state");
+
             String message;
+            Object outcome;
             if (code == null) {
                 message = "Sign-in was cancelled. You can close this tab.";
-                result.offer(new IOException("Discord did not return a code."));
+                outcome = new IOException("Discord did not return a code.");
             } else if (!state.equals(returnedState)) {
                 // Someone else's redirect landed here. Refuse it rather than trade it for a session.
                 message = "Sign-in could not be verified. You can close this tab.";
-                result.offer(new IOException("State mismatch on the Discord redirect."));
+                outcome = new IOException("State mismatch on the Discord redirect.");
             } else {
                 message = "Signed in. You can close this tab and return to the launcher.";
-                result.offer(code);
+                outcome = code;
             }
-            byte[] body = page(message).getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
-            exchange.sendResponseHeaders(200, body.length);
-            try (OutputStream out = exchange.getResponseBody()) {
-                out.write(body);
+
+            // Answer the browser BEFORE handing the result over. Publishing first unblocks the
+            // waiting thread, which immediately shuts this server down and tears the socket out
+            // from under this very response — the browser then reports a refused connection even
+            // though the redirect arrived perfectly.
+            try {
+                byte[] body = page(message).getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
+                exchange.sendResponseHeaders(200, body.length);
+                try (OutputStream out = exchange.getResponseBody()) {
+                    out.write(body);
+                    out.flush();
+                }
+            } finally {
+                exchange.close();
+                result.offer(outcome);
             }
         });
         server.setExecutor(null);
@@ -100,9 +113,11 @@ public final class DiscordLogin {
             Thread.currentThread().interrupt();
             throw new IOException("Sign-in was interrupted.", e);
         } finally {
-            // No delay: the browser already has its response, and leaving the port held would block
-            // the next attempt after a failed one.
-            server.stop(0);
+            // A second of grace rather than zero. The handler has already answered by the time we
+            // get here, but `stop(0)` closes exchanges that are still draining, and the cost of
+            // being wrong about that is a player staring at a browser error after a login that
+            // actually succeeded.
+            server.stop(1);
         }
     }
 
