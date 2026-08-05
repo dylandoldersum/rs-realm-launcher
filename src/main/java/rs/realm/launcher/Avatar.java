@@ -58,16 +58,21 @@ public final class Avatar {
         }.execute();
     }
 
-    /** Replaces [label]'s icon with a scaled thumbnail once it arrives; no-op if it never does. */
-    public static void loadThumbnail(JLabel label, String url, int width, int height) {
+    /**
+     * Fetches an image and hands it over on the UI thread, at its original size.
+     *
+     * Deliberately not scaled here. A news card's width is whatever the window gives it, and that
+     * changes as the launcher is resized — so scaling belongs at paint time, where the real width is
+     * known, not at load time where it would have to be guessed.
+     */
+    public static void load(String url, java.util.function.Consumer<BufferedImage> onLoaded) {
         if (url == null || url.isBlank()) {
             return;
         }
         new SwingWorker<BufferedImage, Void>() {
             @Override
             protected BufferedImage doInBackground() {
-                BufferedImage image = fetch(url);
-                return image == null ? null : cover(image, width, height);
+                return fetch(url);
             }
 
             @Override
@@ -75,11 +80,11 @@ public final class Avatar {
                 try {
                     BufferedImage image = get();
                     if (image != null) {
-                        label.setIcon(new ImageIcon(image));
-                        label.setText(null);
+                        onLoaded.accept(image);
                     }
                 } catch (Exception e) {
-                    // Card keeps its plain background.
+                    // Card keeps its plain background. Discord attachment URLs are signed and
+                    // expire, so an older post failing to load is normal rather than broken.
                 }
             }
         }.execute();
@@ -103,7 +108,7 @@ public final class Avatar {
     }
 
     /** Scales to fill and centre-crops, so a wide screenshot does not letterbox the card. */
-    private static BufferedImage cover(BufferedImage source, int width, int height) {
+    public static BufferedImage cover(BufferedImage source, int width, int height) {
         double scale =
                 Math.max((double) width / source.getWidth(), (double) height / source.getHeight());
         int w = (int) Math.ceil(source.getWidth() * scale);

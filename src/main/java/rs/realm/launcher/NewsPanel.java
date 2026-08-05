@@ -10,6 +10,7 @@ import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -23,7 +24,9 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
+import javax.swing.JViewport;
 import javax.swing.ScrollPaneConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.plaf.basic.BasicScrollBarUI;
 
 /**
@@ -35,12 +38,9 @@ import javax.swing.plaf.basic.BasicScrollBarUI;
  */
 public final class NewsPanel extends JPanel {
 
-    private static final int CARD_WIDTH = 380;
     private static final int IMAGE_HEIGHT = 150;
 
     /** The newest post gets the full width and a taller image — it is the one people came for. */
-    private static final int HERO_WIDTH = 780;
-
     private static final int HERO_IMAGE_HEIGHT = 240;
 
     private final JPanel column = new JPanel();
@@ -64,7 +64,22 @@ public final class NewsPanel extends JPanel {
         emptyLabel.setForeground(Theme.SUBTEXT);
         emptyLabel.setFont(Theme.BODY);
 
-        JPanel holder = new JPanel(new BorderLayout());
+        // Tracks the viewport's width instead of asking for its children's preferred width. That is
+        // the whole fix for the column that hung off the right edge: without it a scroll pane hands
+        // the content whatever width it wants and clips the overflow, so a card asking for 380px
+        // twice over simply did not fit and the second one was cut in half.
+        JPanel holder =
+                new JPanel(new BorderLayout()) {
+                    @Override
+                    public Dimension getPreferredSize() {
+                        Dimension preferred = super.getPreferredSize();
+                        JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, this);
+                        if (viewport != null) {
+                            preferred.width = viewport.getWidth();
+                        }
+                        return preferred;
+                    }
+                };
         holder.setOpaque(false);
         holder.add(column, BorderLayout.NORTH);
 
@@ -114,33 +129,35 @@ public final class NewsPanel extends JPanel {
             return;
         }
 
-        JComponent hero = card(items.get(0), HERO_WIDTH, HERO_IMAGE_HEIGHT, 20);
+        JComponent hero = card(items.get(0), true, HERO_IMAGE_HEIGHT, 20);
         hero.setAlignmentX(Component.LEFT_ALIGNMENT);
-        hero.setMaximumSize(new Dimension(Integer.MAX_VALUE, HERO_IMAGE_HEIGHT + 170));
+        hero.setMaximumSize(new Dimension(Integer.MAX_VALUE, HERO_IMAGE_HEIGHT + 120));
         column.add(hero);
 
         if (items.size() > 1) {
             column.add(Box.createVerticalStrut(14));
             for (Backend.News item : items.subList(1, items.size())) {
-                grid.add(card(item, CARD_WIDTH, IMAGE_HEIGHT, 14));
+                grid.add(card(item, false, IMAGE_HEIGHT, 14));
             }
             grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+            // Rows of two, each row as tall as its image plus the text under it. Without a cap the
+            // BoxLayout hands the grid every spare pixel of height and the cards stretch.
+            int rows = (int) Math.ceil((items.size() - 1) / 2.0);
+            grid.setMaximumSize(
+                    new Dimension(Integer.MAX_VALUE, rows * (IMAGE_HEIGHT + 110) + (rows - 1) * 14));
             column.add(grid);
         }
         revalidate();
         repaint();
     }
 
-    private JComponent card(Backend.News item, int width, int imageHeight, int titleSize) {
+    private JComponent card(Backend.News item, boolean hero, int imageHeight, int titleSize) {
         JPanel card = new JPanel(new BorderLayout());
         card.setBackground(Theme.PANEL);
         card.setBorder(BorderFactory.createLineBorder(Theme.BORDER, 1));
 
-        JLabel image = new JLabel();
-        image.setPreferredSize(new Dimension(width, imageHeight));
-        image.setOpaque(true);
-        image.setBackground(Theme.TRACK);
-        Avatar.loadThumbnail(image, item.imageUrl(), width, imageHeight);
+        CoverImage image = new CoverImage(imageHeight);
+        Avatar.load(item.imageUrl(), image::setImage);
         card.add(image, BorderLayout.NORTH);
 
         JPanel text = new JPanel();
@@ -156,12 +173,13 @@ public final class NewsPanel extends JPanel {
         text.add(Box.createVerticalStrut(6));
 
         // The hero has room to say more; the grid cards stay teasers so two of them line up.
-        String summary = summarise(item.body(), width == HERO_WIDTH ? 600 : 150);
+        String summary = summarise(item.body(), hero ? 600 : 150);
         if (!summary.isEmpty()) {
-            // HTML gives us wrapping inside a fixed width without a JTextArea's scroll/selection
-            // behaviour, which is wrong for what is really a paragraph of static text.
-            JLabel body =
-                    new JLabel("<html><body style='width:" + (width - 40) + "px'>" + escape(summary) + "</body></html>");
+            // One line, ellipsised by the label itself if the card is narrow. HTML wrapping was
+            // tempting here and is a trap: a JLabel with an <html> body reports the width it would
+            // LIKE as its preferred size, which pushes the whole grid wider than the window instead
+            // of wrapping inside it — the exact overflow this layout had.
+            JLabel body = new JLabel(summary);
             body.setForeground(Theme.SUBTEXT);
             body.setFont(Theme.BODY);
             body.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -212,6 +230,47 @@ public final class NewsPanel extends JPanel {
     @Override
     public Color getBackground() {
         return Theme.BACKGROUND;
+    }
+
+    /**
+     * A card's picture, scaled at paint time to whatever width the card ended up with.
+     *
+     * The scaling has to happen here rather than at load. A card's width comes from the grid, which
+     * comes from the window, which the player can resize — so a bitmap sized when the image arrived
+     * is right once and wrong afterwards. Asking for a preferred width of zero is what lets the grid
+     * decide instead of the picture.
+     */
+    private static final class CoverImage extends JComponent {
+        private BufferedImage source;
+        private BufferedImage scaled;
+
+        CoverImage(int height) {
+            setPreferredSize(new Dimension(0, height));
+            setMinimumSize(new Dimension(0, height));
+        }
+
+        void setImage(BufferedImage image) {
+            this.source = image;
+            this.scaled = null;
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            int w = getWidth();
+            int h = getHeight();
+            g.setColor(Theme.TRACK);
+            g.fillRect(0, 0, w, h);
+            if (source == null || w <= 0 || h <= 0) {
+                return;
+            }
+            // Rescale only when the size actually changed — a repaint on every frame of a resize
+            // would otherwise redo the whole bilinear pass each time.
+            if (scaled == null || scaled.getWidth() != w || scaled.getHeight() != h) {
+                scaled = Avatar.cover(source, w, h);
+            }
+            g.drawImage(scaled, 0, 0, null);
+        }
     }
 
     /**

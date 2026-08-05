@@ -479,6 +479,41 @@ public final class LauncherFrame extends JFrame {
         }
     }
 
+    /**
+     * Brings the launcher back to the front once the client goes away.
+     *
+     * The client closes itself when a launcher-started session is logged out, and by then this
+     * window has been sitting behind everything for however long the player was in game. Raising it
+     * is what makes "log out, pick another character" one motion instead of a hunt through the
+     * taskbar.
+     */
+    private void watchForExit(Process client) {
+        Thread watcher =
+                new Thread(
+                        () -> {
+                            try {
+                                client.waitFor();
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                return;
+                            }
+                            javax.swing.SwingUtilities.invokeLater(
+                                    () -> {
+                                        setState(NORMAL);
+                                        toFront();
+                                        requestFocus();
+                                        // Refresh straight away rather than waiting out the poll:
+                                        // somebody just left, and a count that still includes them
+                                        // is the one moment it is visibly wrong.
+                                        refreshPlayerCount();
+                                    });
+                        },
+                        "rsrealm-client-watch");
+        // A daemon, so a client that never exits cannot keep the launcher alive after it is closed.
+        watcher.setDaemon(true);
+        watcher.start();
+    }
+
     private void signOut() {
         new SwingWorker<Void, Void>() {
             @Override
@@ -818,11 +853,12 @@ public final class LauncherFrame extends JFrame {
                     return;
                 }
                 try {
-                    GameClient.play(token, profile.displayName());
+                    Process client = GameClient.play(token, profile.displayName());
                     // The launcher stays open. Closing it would be the last word on a client that
                     // has not finished starting — and it is also where you switch character, so
                     // shutting it down means restarting it to play a second profile.
                     statusLabel.setText("Started " + profile.displayName() + ".");
+                    watchForExit(client);
                     Timer ready = new Timer(2500, e -> applyState(Phase.PLAY));
                     ready.setRepeats(false);
                     ready.start();
