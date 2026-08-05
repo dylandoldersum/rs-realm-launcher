@@ -53,19 +53,24 @@ public final class Config {
     public static final Path SESSION_FILE = INSTALL_DIR.resolve("session.properties");
 
     /**
-     * Experimental: hand the token to the gamepack's own account mode instead of the login form.
+     * Hands the token to the gamepack's own account mode instead of the login form. TESTED, AND IT
+     * DOES NOT WORK. Kept only so nobody spends another evening rediscovering that.
      *
-     * Account mode is the route that produces a real "Play Now" screen with the character's name on
-     * it, rather than a login form filled in for you. An earlier attempt at it failed — the client
-     * never opened a game connection — but that attempt put the token in {@code JX_ACCESS_TOKEN},
-     * and rsprox, which demonstrably gets a client into account mode against a local server, leaves
-     * that variable EMPTY and carries its value in {@code JX_SESSION_ID}.
+     * <p>Account mode is the route that produces a real "Play Now" screen with the character's name
+     * on it. It draws that screen perfectly and then, on the click, never opens a game connection at
+     * all — it goes looking for Jagex's own authentication servers.
      *
-     * <p>Off by default and deliberately a flag, because this is an either/or: in account mode there
-     * is no password field, so the working form-fill cannot stand behind it as a fallback. Turning it
-     * on is a choice to test, not a default anybody inherits.
+     * <p>Tried twice, with opposite arrangements. First with the token in {@code JX_ACCESS_TOKEN};
+     * then in rsprox's exact shape, token in {@code JX_SESSION_ID} with access and refresh left
+     * empty, which is the arrangement that demonstrably gets rsprox's client into account mode
+     * against a local server. Neither produced a single token login on the server, and the server
+     * logs BOTH acceptance and rejection — so the silence is evidence rather than an absence of it.
      *
-     * <p>Enable with {@code -Drsrealm.jagexmode=true}.
+     * <p>The working route is the ordinary login form, filled in by the client's own plugin. The
+     * only visible difference is one frame of login screen.
+     *
+     * <p>Still reachable with {@code -Drsrealm.jagexmode=true} for anyone who wants to try again
+     * against a future client revision.
      */
     public static final boolean JAGEX_MODE =
         Boolean.parseBoolean(System.getProperty("rsrealm.jagexmode", "false"));
