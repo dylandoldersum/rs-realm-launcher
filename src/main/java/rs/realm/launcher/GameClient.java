@@ -10,27 +10,21 @@ public final class GameClient {
     private GameClient() {}
 
     /**
-     * Starts the client and hands it a launch token, so it can log in without a password screen.
+     * Starts the client and hands it a launch token, so the player never sees a password box.
      *
-     * The token is passed BOTH ways on purpose:
+     * The token travels as a system property, which the client's own plugin reads and types into the
+     * ordinary login form on the player's behalf.
      *
-     * <ul>
-     *   <li>{@code -Drsrealm.launchtoken} — the agent can always read a system property, whatever
-     *       the client ends up doing with it.
-     *   <li>{@code JX_ACCESS_TOKEN} / {@code JX_DISPLAY_NAME} — the shape the OSRS gamepack itself
-     *       reads when it runs in Jagex-account mode, which is the route that produces a real "Play
-     *       Now" screen instead of a login form.
-     * </ul>
-     *
-     * The second one does nothing yet: the client's agent currently STRIPS every {@code JX_*}
-     * variable, deliberately, because players who also ran the real Jagex launcher were landing on
-     * an account screen that authenticates against Jagex and cannot work on a private server.
-     * Setting them here costs nothing and means the launcher side is already done whichever way that
-     * decision lands.
+     * <p>It used to also be passed as the {@code JX_*} variables — the shape the OSRS gamepack reads
+     * in Jagex-account mode, which really does produce a "Play Now" screen with the character's name
+     * on it. That screen then authenticates against Jagex's servers rather than ours, so clicking it
+     * fails and nothing reaches the server at all. A screen that looks right and cannot work is
+     * worse than no screen, so those are gone.
      *
      * @param launchToken the one-shot token from the backend, or null to start the client with the
      *     ordinary login screen.
-     * @param displayName the profile being played, shown by the gamepack in Jagex-account mode.
+     * @param displayName the profile being played. Only fills the username field — the server takes
+     *     the profile from the token, so this cannot log anyone into the wrong account.
      */
     public static Process play(String launchToken, String displayName) throws IOException {
         return start(launchToken, displayName);
@@ -76,14 +70,6 @@ public final class GameClient {
         command.add(Config.CLIENT_JAR.toString());
 
         ProcessBuilder pb = new ProcessBuilder(command);
-        if (launchToken != null && !launchToken.isBlank()) {
-            pb.environment().put("JX_ACCESS_TOKEN", launchToken);
-            pb.environment().put("JX_SESSION_ID", launchToken);
-            if (displayName != null && !displayName.isBlank()) {
-                pb.environment().put("JX_DISPLAY_NAME", displayName);
-                pb.environment().put("JX_CHARACTER_ID", displayName);
-            }
-        }
         pb.directory(Config.INSTALL_DIR.toFile());
         pb.redirectErrorStream(true);
         pb.redirectOutput(Config.CLIENT_LOG.toFile());
