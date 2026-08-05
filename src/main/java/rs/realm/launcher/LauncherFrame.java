@@ -159,6 +159,10 @@ public final class LauncherFrame extends JFrame {
         accountChip.add(accountAvatar);
 
         JPopupMenu menu = new JPopupMenu();
+        JMenuItem link = new JMenuItem("Link an existing character...");
+        link.addActionListener(e -> showLinkCode());
+        menu.add(link);
+        menu.addSeparator();
         JMenuItem signOut = new JMenuItem("Sign out");
         signOut.addActionListener(e -> signOut());
         menu.add(signOut);
@@ -354,6 +358,55 @@ public final class LauncherFrame extends JFrame {
                 session.save(backend.session(), signedIn);
                 showAccount(signedIn);
                 loadProfiles(false);
+            }
+        }.execute();
+    }
+
+    /**
+     * Fetches a link code and shows it, for characters that existed before Discord did.
+     *
+     * The code is deliberately not applied here — the launcher cannot prove the player owns an old
+     * character, only that they own this Discord. Typing it in game supplies the other half, because
+     * being logged in on a character is proof the server can see and this window cannot.
+     */
+    private void showLinkCode() {
+        new SwingWorker<String, Void>() {
+            private String failure;
+
+            @Override
+            protected String doInBackground() {
+                try {
+                    return backend.linkCode();
+                } catch (Exception e) {
+                    failure = e.getMessage();
+                    return null;
+                }
+            }
+
+            @Override
+            protected void done() {
+                String code = null;
+                try {
+                    code = get();
+                } catch (Exception e) {
+                    failure = e.getMessage();
+                }
+                if (code == null) {
+                    JOptionPane.showMessageDialog(
+                            LauncherFrame.this,
+                            failure == null ? "Couldn't get a code." : failure,
+                            "Link an existing character",
+                            JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                JOptionPane.showMessageDialog(
+                        LauncherFrame.this,
+                        "Log in on the character you want to link, then type:\n\n"
+                                + "    ::discord "
+                                + code
+                                + "\n\nThe code works once and expires in 10 minutes.",
+                        "Link an existing character",
+                        JOptionPane.INFORMATION_MESSAGE);
             }
         }.execute();
     }

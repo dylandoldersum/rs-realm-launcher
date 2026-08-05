@@ -135,6 +135,22 @@ public final class Backend {
         return token;
     }
 
+    /**
+     * A short code the player types in game as {@code ::discord <code>} to adopt an existing
+     * character.
+     *
+     * No account is named: this end only says "whoever types this is me". Which character it
+     * attaches to is decided by whichever one is logged in when the code is spent.
+     */
+    public String linkCode() throws IOException {
+        Map<String, Object> body = send("POST", "/auth/link-code", "{}");
+        String code = Json.str(body, "code", null);
+        if (code == null) {
+            throw new IOException("The server did not return a code.");
+        }
+        return code;
+    }
+
     public void signOut() {
         if (hasSession()) {
             // Best effort. A failure here only means the server keeps a row that will expire anyway;
