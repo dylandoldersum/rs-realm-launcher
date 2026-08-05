@@ -28,10 +28,16 @@ import javax.swing.ScrollPaneConstants;
  */
 public final class NewsPanel extends JPanel {
 
-    private static final int CARD_WIDTH = 260;
-    private static final int IMAGE_HEIGHT = 130;
+    private static final int CARD_WIDTH = 380;
+    private static final int IMAGE_HEIGHT = 150;
 
-    private final JPanel grid = new JPanel(new GridLayout(0, 3, 14, 14));
+    /** The newest post gets the full width and a taller image — it is the one people came for. */
+    private static final int HERO_WIDTH = 780;
+
+    private static final int HERO_IMAGE_HEIGHT = 240;
+
+    private final JPanel column = new JPanel();
+    private final JPanel grid = new JPanel(new GridLayout(0, 2, 14, 14));
     private final JLabel emptyLabel = new JLabel("No updates yet.");
 
     public NewsPanel() {
@@ -46,12 +52,14 @@ public final class NewsPanel extends JPanel {
         add(heading, BorderLayout.NORTH);
 
         grid.setOpaque(false);
+        column.setOpaque(false);
+        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
         emptyLabel.setForeground(Theme.SUBTEXT);
         emptyLabel.setFont(Theme.BODY);
 
         JPanel holder = new JPanel(new BorderLayout());
         holder.setOpaque(false);
-        holder.add(grid, BorderLayout.NORTH);
+        holder.add(column, BorderLayout.NORTH);
 
         JScrollPane scroll =
                 new JScrollPane(
@@ -66,45 +74,65 @@ public final class NewsPanel extends JPanel {
 
     /** Shows a "still loading" line; replaced by {@link #setNews} or {@link #setError}. */
     public void setLoading() {
-        grid.removeAll();
-        emptyLabel.setText("Loading updates...");
-        grid.add(emptyLabel);
-        revalidate();
-        repaint();
+        showMessage("Loading updates...");
     }
 
     public void setError(String message) {
+        showMessage(message);
+    }
+
+    private void showMessage(String message) {
+        column.removeAll();
         grid.removeAll();
         emptyLabel.setText(message);
-        grid.add(emptyLabel);
+        emptyLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        column.add(emptyLabel);
         revalidate();
         repaint();
     }
 
+    /**
+     * The newest post across the full width, the rest in two columns underneath.
+     *
+     * An update feed is not a list of equals — the top one is what the player opened the launcher
+     * to read, and the older ones are there to be skimmed. Giving the first a hero card and a bigger
+     * image says that without needing a label.
+     */
     public void setNews(List<Backend.News> items) {
+        column.removeAll();
         grid.removeAll();
         if (items.isEmpty()) {
-            emptyLabel.setText("No updates yet.");
-            grid.add(emptyLabel);
-        } else {
-            for (Backend.News item : items) {
-                grid.add(card(item));
+            showMessage("No updates yet.");
+            return;
+        }
+
+        JComponent hero = card(items.get(0), HERO_WIDTH, HERO_IMAGE_HEIGHT, 20);
+        hero.setAlignmentX(Component.LEFT_ALIGNMENT);
+        hero.setMaximumSize(new Dimension(Integer.MAX_VALUE, HERO_IMAGE_HEIGHT + 170));
+        column.add(hero);
+
+        if (items.size() > 1) {
+            column.add(Box.createVerticalStrut(14));
+            for (Backend.News item : items.subList(1, items.size())) {
+                grid.add(card(item, CARD_WIDTH, IMAGE_HEIGHT, 14));
             }
+            grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+            column.add(grid);
         }
         revalidate();
         repaint();
     }
 
-    private JComponent card(Backend.News item) {
+    private JComponent card(Backend.News item, int width, int imageHeight, int titleSize) {
         JPanel card = new JPanel(new BorderLayout());
         card.setBackground(Theme.PANEL);
         card.setBorder(BorderFactory.createLineBorder(Theme.BORDER, 1));
 
         JLabel image = new JLabel();
-        image.setPreferredSize(new Dimension(CARD_WIDTH, IMAGE_HEIGHT));
+        image.setPreferredSize(new Dimension(width, imageHeight));
         image.setOpaque(true);
         image.setBackground(Theme.TRACK);
-        Avatar.loadThumbnail(image, item.imageUrl(), CARD_WIDTH, IMAGE_HEIGHT);
+        Avatar.loadThumbnail(image, item.imageUrl(), width, imageHeight);
         card.add(image, BorderLayout.NORTH);
 
         JPanel text = new JPanel();
@@ -114,17 +142,18 @@ public final class NewsPanel extends JPanel {
 
         JLabel title = new JLabel(item.title());
         title.setForeground(Theme.TEXT);
-        title.setFont(new Font("SansSerif", Font.BOLD, 14));
+        title.setFont(new Font("SansSerif", Font.BOLD, titleSize));
         title.setAlignmentX(Component.LEFT_ALIGNMENT);
         text.add(title);
         text.add(Box.createVerticalStrut(6));
 
-        String summary = summarise(item.body());
+        // The hero has room to say more; the grid cards stay teasers so two of them line up.
+        String summary = summarise(item.body(), width == HERO_WIDTH ? 600 : 150);
         if (!summary.isEmpty()) {
             // HTML gives us wrapping inside a fixed width without a JTextArea's scroll/selection
             // behaviour, which is wrong for what is really a paragraph of static text.
             JLabel body =
-                    new JLabel("<html><body style='width:" + (CARD_WIDTH - 30) + "px'>" + escape(summary) + "</body></html>");
+                    new JLabel("<html><body style='width:" + (width - 40) + "px'>" + escape(summary) + "</body></html>");
             body.setForeground(Theme.SUBTEXT);
             body.setFont(Theme.BODY);
             body.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -142,13 +171,13 @@ public final class NewsPanel extends JPanel {
         return card;
     }
 
-    /** First few lines only — a card is a teaser, and patch notes can run long. */
-    private static String summarise(String body) {
+    /** Trimmed to fit — patch notes run long and a card is a teaser, not the article. */
+    private static String summarise(String body, int limit) {
         String trimmed = body.strip();
-        if (trimmed.length() <= 180) {
+        if (trimmed.length() <= limit) {
             return trimmed;
         }
-        return trimmed.substring(0, 177).stripTrailing() + "...";
+        return trimmed.substring(0, limit - 3).stripTrailing() + "...";
     }
 
     private static String escape(String text) {
