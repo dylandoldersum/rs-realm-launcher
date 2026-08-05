@@ -1,0 +1,19 @@
+# Gradle
+.gradle/
+build/
+
+# A scratch directory for serving a manifest locally while testing the update flow.
+test-serve/
+
+# IDE
+.idea/
+*.iml
+out/
+
+# The client jar is published as a GitHub RELEASE asset, never committed.
+#
+# It is ~22 MB and a new one ships every release, so committing it would grow the history by that
+# much every time — and git keeps every version forever. `version.properties` points at the release
+# download URL instead, which is the one file that has to change per release.
+fiddled-client.jar
+rs-realm-launcher.jar
