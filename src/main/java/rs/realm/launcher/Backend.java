@@ -57,6 +57,11 @@ public final class Backend {
         return session != null && !session.isBlank();
     }
 
+    /** The current bearer token, so the caller can persist it. Null when signed out. */
+    public String session() {
+        return session;
+    }
+
     // ------------------------------------------------------------------- public API ----
 
     public OAuthConfig oauthConfig() throws IOException {
