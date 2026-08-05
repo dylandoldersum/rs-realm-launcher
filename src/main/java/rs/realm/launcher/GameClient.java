@@ -26,16 +26,18 @@ public final class GameClient {
      * @param displayName the profile being played. Only fills the username field — the server takes
      *     the profile from the token, so this cannot log anyone into the wrong account.
      */
-    public static Process play(String launchToken, String displayName) throws IOException {
-        return start(launchToken, displayName);
+    public static Process play(String launchToken, String displayName, int accountId)
+            throws IOException {
+        return start(launchToken, displayName, accountId);
     }
 
     /** Starts the client with no token — the plain login screen. */
     public static Process play() throws IOException {
-        return start(null, null);
+        return start(null, null, 0);
     }
 
-    private static Process start(String launchToken, String displayName) throws IOException {
+    private static Process start(String launchToken, String displayName, int accountId)
+            throws IOException {
         if (!Files.exists(Config.CLIENT_JAR)) {
             throw new IOException("Client is not installed yet.");
         }
@@ -60,16 +62,33 @@ public final class GameClient {
         for (String arg : Config.CLIENT_JVM_ARGS) {
             command.add(arg);
         }
-        if (launchToken != null && !launchToken.isBlank()) {
+        boolean hasToken = launchToken != null && !launchToken.isBlank();
+        if (hasToken) {
             command.add("-Drsrealm.launchtoken=" + launchToken);
             if (displayName != null && !displayName.isBlank()) {
                 command.add("-Drsrealm.displayname=" + displayName);
+            }
+            if (Config.JAGEX_MODE) {
+                // Tells the agent to leave the JX_* variables alone. Without it they are stripped,
+                // which is the right default for everyone who is not running this experiment.
+                command.add("-Drsrealm.jagexmode=true");
             }
         }
         command.add("-jar");
         command.add(Config.CLIENT_JAR.toString());
 
         ProcessBuilder pb = new ProcessBuilder(command);
+        if (hasToken && Config.JAGEX_MODE) {
+            // Exactly rsprox's shape, which is the only arrangement known to put a client into
+            // account mode against something other than Jagex. ACCESS and REFRESH stay EMPTY —
+            // filling ACCESS is what the first attempt did, and a filled access token is something
+            // the gamepack goes off to validate upstream.
+            pb.environment().put("JX_SESSION_ID", launchToken);
+            pb.environment().put("JX_CHARACTER_ID", Integer.toString(accountId));
+            pb.environment().put("JX_DISPLAY_NAME", displayName == null ? "" : displayName);
+            pb.environment().put("JX_ACCESS_TOKEN", "");
+            pb.environment().put("JX_REFRESH_TOKEN", "");
+        }
         pb.directory(Config.INSTALL_DIR.toFile());
         pb.redirectErrorStream(true);
         pb.redirectOutput(Config.CLIENT_LOG.toFile());

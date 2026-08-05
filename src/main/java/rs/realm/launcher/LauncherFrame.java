@@ -899,7 +899,8 @@ public final class LauncherFrame extends JFrame {
                     return;
                 }
                 try {
-                    Process client = GameClient.play(token, profile.displayName());
+                    Process client =
+                            GameClient.play(token, profile.displayName(), profile.accountId());
                     // The launcher stays open. Closing it would be the last word on a client that
                     // has not finished starting — and it is also where you switch character, so
                     // shutting it down means restarting it to play a second profile.
