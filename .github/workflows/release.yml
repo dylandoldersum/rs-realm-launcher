@@ -21,6 +21,10 @@ on:
         description: "Launcher version, e.g. 1.0.0"
         required: true
         default: "1.0.0"
+      publish:
+        description: "Also create the GitHub release (otherwise it only builds)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -129,8 +133,9 @@ jobs:
     name: Publish release
     needs: build
     runs-on: ubuntu-latest
-    # Only tags publish. A manual run is for checking that all four bundles still build.
-    if: startsWith(github.ref, 'refs/tags/')
+    # A tag publishes. A manual run only builds, unless it explicitly asks to publish — the escape
+    # hatch for when a tag push does not reach Actions, which has happened.
+    if: startsWith(github.ref, 'refs/tags/') || inputs.publish
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -139,9 +144,22 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          set -eu
+          # On a tag the ref names the release; on a manual publish it is "main", so the version
+          # input has to supply the name instead.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="launcher-v$VERSION"
+          fi
+          files=$(find bundles -type f | tr '\n' ' ')
+          echo "Publishing $tag with: $files"
+          # --target is harmless on a tag that already exists and is what creates it otherwise.
+          gh release create "$tag" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "RS-Realm Launcher ${GITHUB_REF_NAME#launcher-v}" \
+            --target "$GITHUB_SHA" \
+            --title "RS-Realm Launcher ${tag#launcher-v}" \
             --generate-notes \
-            $(find bundles -type f | tr '\n' ' ')
+            $files
