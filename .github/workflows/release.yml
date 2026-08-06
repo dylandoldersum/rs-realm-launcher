@@ -37,26 +37,26 @@ jobs:
           - os: windows-latest
             label: Windows installer
             task: nativeInstaller
-            artifact: windows-exe
-            path: build/jpackage/installer/*.exe
+            suffix: windows
+            glob: build/jpackage/installer/*.exe
           - os: macos-14
             label: macOS installer (Apple Silicon)
             task: nativeInstaller
-            artifact: macos-arm64-dmg
-            path: build/jpackage/installer/*.dmg
+            suffix: macos-arm64
+            glob: build/jpackage/installer/*.dmg
           - os: macos-13
             label: macOS installer (Intel)
             task: nativeInstaller
-            artifact: macos-x64-dmg
-            path: build/jpackage/installer/*.dmg
+            suffix: macos-x64
+            glob: build/jpackage/installer/*.dmg
           - os: ubuntu-latest
             label: Portable jar
             task: jar
-            artifact: jar
-            path: build/libs/rs-realm-launcher.jar
+            suffix: portable
+            glob: build/libs/*.jar
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Work out the version
         id: version
@@ -68,40 +68,62 @@ jobs:
             echo "value=${GITHUB_REF_NAME#launcher-v}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
 
-      # jpackage shells out to WiX to build a Windows .exe installer, and it is not on the runner
-      # image. Pinned to WiX 3: jpackage does not support WiX 4's rewritten command line.
-      - name: Install WiX (Windows only)
+      # jpackage shells out to WiX to build a Windows .exe installer. The runner image already ships
+      # a WiX 3, so this only has to install one when that stops being true — and it must not pin a
+      # version, because choco fails outright rather than shrugging when asked to downgrade.
+      - name: Ensure WiX is available (Windows only)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install wixtoolset --version=3.11.2 -y --no-progress
-          "$env:WIX\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-          "C:\Program Files (x86)\WiX Toolset v3.11\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $candle = Get-Command candle.exe -ErrorAction SilentlyContinue
+          if ($candle) {
+            Write-Host "WiX already present: $($candle.Source)"
+          } else {
+            choco install wixtoolset -y --no-progress
+            Get-ChildItem "C:\Program Files (x86)" -Filter "WiX Toolset v*" -Directory |
+              ForEach-Object { "$($_.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8 }
+          }
+
+      # The exec bit does not survive a checkout on every setup, and the file is easy to reintroduce
+      # from a Windows machine without it. One chmod is cheaper than rediscovering this failure.
+      - name: Make the Gradle wrapper executable
+        if: runner.os != 'Windows'
+        run: chmod +x gradlew
 
       - name: Build
         shell: bash
         run: ./gradlew ${{ matrix.task }} -PlauncherVersion=${{ steps.version.outputs.value }} --no-daemon
 
-      - name: Rename the bundle so the platform is visible in the download
+      # Collected into one directory under a name that says which platform it is for. Downloaders
+      # cannot tell an Apple Silicon .dmg from an Intel one by looking at it, and picking the wrong
+      # one gives an app that will not open.
+      - name: Collect the bundle
         shell: bash
         run: |
           set -eu
           shopt -s nullglob
-          for f in ${{ matrix.path }}; do
-            dir=$(dirname "$f")
-            ext="${f##*.}"
-            mv "$f" "$dir/RS-Realm-${{ steps.version.outputs.value }}-${{ matrix.artifact }}.$ext"
+          mkdir -p dist
+          found=0
+          for f in ${{ matrix.glob }}; do
+            cp "$f" "dist/RS-Realm-${{ steps.version.outputs.value }}-${{ matrix.suffix }}.${f##*.}"
+            found=$((found + 1))
           done
+          # Fail here rather than at upload: this way the error names the glob that matched nothing.
+          if [ "$found" -eq 0 ]; then
+            echo "No build output matched ${{ matrix.glob }}" >&2
+            exit 1
+          fi
+          ls -lh dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.path }}
+          name: ${{ matrix.suffix }}
+          path: dist/*
           if-no-files-found: error
 
   release:
