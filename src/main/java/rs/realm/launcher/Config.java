@@ -45,9 +45,14 @@ public final class Config {
      *
      * A domain rather than an IP on purpose — the server has moved hosts once already, and an IP in
      * a shipped launcher means every player needs a new launcher when it moves again.
+     *
+     * <p>HTTPS, through the reverse proxy in front of the game server's plain HTTP port. Everything
+     * this carries is a credential: the Discord exchange, the session token attached to every call,
+     * and the launch token that logs a player in. Over plain HTTP all three travel in the clear on
+     * whatever network the player happens to be on.
      */
     public static final String API_BASE_URL =
-        System.getProperty("rsrealm.api", "http://play.rs-realm.com:43595");
+        System.getProperty("rsrealm.api", "https://auth.rs-realm.com");
 
     /** Where the signed-in session is remembered between launches. */
     public static final Path SESSION_FILE = INSTALL_DIR.resolve("session.properties");
