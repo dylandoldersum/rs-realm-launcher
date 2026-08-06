@@ -4,8 +4,9 @@
 # the whole reason this file exists: a macOS .dmg cannot be produced on the Windows machine where
 # this repo is edited.
 #
-# Apple Silicon and Intel Macs need SEPARATE builds — a bundle carries one architecture's runtime,
-# and an arm64 build will not start on an Intel Mac. macos-14 is Apple Silicon, macos-13 is Intel.
+# The macOS bundle is Apple Silicon only. A bundle carries one architecture's runtime, so an Intel
+# Mac would need its own build on a macos-13 runner — and GitHub is retiring those, so that job sat
+# queued indefinitely and held up every release behind it. Intel Mac players use the portable jar.
 #
 # Trigger by pushing a tag:  git tag launcher-v1.0.0 && git push origin launcher-v1.0.0
 name: Release launcher
@@ -44,11 +45,9 @@ jobs:
             task: nativeInstaller
             suffix: macos-arm64
             glob: build/jpackage/installer/*.dmg
-          - os: macos-13
-            label: macOS installer (Intel)
-            task: nativeInstaller
-            suffix: macos-x64
-            glob: build/jpackage/installer/*.dmg
+          # No Intel Mac bundle. GitHub is retiring the macos-13 runners, so the job sat queued
+          # indefinitely and blocked every release behind it — the publish step waits on all four.
+          # Intel Mac players use the portable jar, which needs a system Java 21.
           - os: ubuntu-latest
             label: Portable jar
             task: jar

@@ -48,9 +48,13 @@ git tag launcher-v1.0.0
 git push origin launcher-v1.0.0
 ```
 
-That produces four downloads: Windows `.exe`, macOS `.dmg` for Apple Silicon, macOS `.dmg` for
-Intel, and the plain `.jar` for anyone who already has Java 21. The two Mac builds are not
-interchangeable; an arm64 bundle will not start on an Intel Mac.
+That produces three downloads: Windows `.exe`, macOS `.dmg` for Apple Silicon, and the plain `.jar`
+for anyone who already has Java 21.
+
+There is no Intel Mac bundle. A bundle carries one architecture's runtime, so Intel would need its
+own build on a `macos-13` runner, and GitHub is retiring those — the job sat queued indefinitely and
+blocked the release behind it. Intel Mac players use the jar, which needs a system Java 21. If that
+ever matters enough, the job is four lines to add back.
 
 The version in the tag is the **launcher's** own, which is not the client version in
 `version.properties`. That one is data the launcher downloads and it changes far more often.
