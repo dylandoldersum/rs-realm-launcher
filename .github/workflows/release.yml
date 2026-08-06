@@ -1,0 +1,126 @@
+# Builds every downloadable form of the launcher and attaches them to a GitHub release.
+#
+# jpackage cannot cross-compile, so each native bundle is built on its own operating system. That is
+# the whole reason this file exists: a macOS .dmg cannot be produced on the Windows machine where
+# this repo is edited.
+#
+# Apple Silicon and Intel Macs need SEPARATE builds — a bundle carries one architecture's runtime,
+# and an arm64 build will not start on an Intel Mac. macos-14 is Apple Silicon, macos-13 is Intel.
+#
+# Trigger by pushing a tag:  git tag launcher-v1.0.0 && git push origin launcher-v1.0.0
+name: Release launcher
+
+on:
+  push:
+    tags:
+      - "launcher-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Launcher version, e.g. 1.0.0"
+        required: true
+        default: "1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not throw away the bundles that did build — a Mac-only problem
+      # should still leave a downloadable Windows installer.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows installer
+            task: nativeInstaller
+            artifact: windows-exe
+            path: build/jpackage/installer/*.exe
+          - os: macos-14
+            label: macOS installer (Apple Silicon)
+            task: nativeInstaller
+            artifact: macos-arm64-dmg
+            path: build/jpackage/installer/*.dmg
+          - os: macos-13
+            label: macOS installer (Intel)
+            task: nativeInstaller
+            artifact: macos-x64-dmg
+            path: build/jpackage/installer/*.dmg
+          - os: ubuntu-latest
+            label: Portable jar
+            task: jar
+            artifact: jar
+            path: build/libs/rs-realm-launcher.jar
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: version
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "value=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF_NAME#launcher-v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # jpackage shells out to WiX to build a Windows .exe installer, and it is not on the runner
+      # image. Pinned to WiX 3: jpackage does not support WiX 4's rewritten command line.
+      - name: Install WiX (Windows only)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install wixtoolset --version=3.11.2 -y --no-progress
+          "$env:WIX\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          "C:\Program Files (x86)\WiX Toolset v3.11\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Build
+        shell: bash
+        run: ./gradlew ${{ matrix.task }} -PlauncherVersion=${{ steps.version.outputs.value }} --no-daemon
+
+      - name: Rename the bundle so the platform is visible in the download
+        shell: bash
+        run: |
+          set -eu
+          shopt -s nullglob
+          for f in ${{ matrix.path }}; do
+            dir=$(dirname "$f")
+            ext="${f##*.}"
+            mv "$f" "$dir/RS-Realm-${{ steps.version.outputs.value }}-${{ matrix.artifact }}.$ext"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    # Only tags publish. A manual run is for checking that all four bundles still build.
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: bundles
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "RS-Realm Launcher ${GITHUB_REF_NAME#launcher-v}" \
+            --generate-notes \
+            $(find bundles -type f | tr '\n' ' ')
