@@ -58,24 +58,25 @@ public final class Config {
     public static final Path SESSION_FILE = INSTALL_DIR.resolve("session.properties");
 
     /**
-     * Hands the token to the gamepack's own account mode instead of the login form. TESTED, AND IT
-     * DOES NOT WORK. Kept only so nobody spends another evening rediscovering that.
+     * Hands the token to the gamepack's own account mode instead of the login form. WORKS — it
+     * produces the real "Play Now" screen with the character's name on it and no password box at
+     * all.
      *
-     * <p>Account mode is the route that produces a real "Play Now" screen with the character's name
-     * on it. It draws that screen perfectly and then, on the click, never opens a game connection at
-     * all — it goes looking for Jagex's own authentication servers.
+     * <p>The token goes in {@code JX_SESSION_ID}, with access and refresh left EMPTY (rsprox's
+     * shape). The gamepack then fetches a login token over HTTPS and sends it through the login
+     * protocol, where the server redeems it exactly as it does from the password field.
      *
-     * <p>Tried twice, with opposite arrangements. First with the token in {@code JX_ACCESS_TOKEN};
-     * then in rsprox's exact shape, token in {@code JX_SESSION_ID} with access and refresh left
-     * empty, which is the arrangement that demonstrably gets rsprox's client into account mode
-     * against a local server. Neither produced a single token login on the server, and the server
-     * logs BOTH acceptance and rejection — so the silence is evidence rather than an absence of it.
+     * <p>Four separate things had to be right, and each failed in a way that looked like the
+     * others. The auth HOST comes from the hosted jav_config's applet params, not from the client
+     * jar. That host must keep the {@code /jagex/} path prefix, must be HTTPS (the gamepack casts
+     * the connection to {@code HttpsURLConnection}), and must answer the token call with the bare
+     * token as plain text — the gamepack does not parse that response, it swallows the whole body.
      *
-     * <p>The working route is the ordinary login form, filled in by the client's own plugin. The
-     * only visible difference is one frame of login screen.
+     * <p>Requires a client whose jav_config points at our auth host. A client built against the
+     * stock config still reaches Jagex and cannot log in, which is why this is not on by default.
      *
-     * <p>Still reachable with {@code -Drsrealm.jagexmode=true} for anyone who wants to try again
-     * against a future client revision.
+     * <p>The fallback stays: without this, the client's own plugin types the launch token into the
+     * ordinary login form. The only visible difference is one frame of login screen.
      */
     public static final boolean JAGEX_MODE =
         Boolean.parseBoolean(System.getProperty("rsrealm.jagexmode", "false"));

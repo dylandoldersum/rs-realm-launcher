@@ -12,14 +12,12 @@ public final class GameClient {
     /**
      * Starts the client and hands it a launch token, so the player never sees a password box.
      *
-     * The token travels as a system property, which the client's own plugin reads and types into the
-     * ordinary login form on the player's behalf.
-     *
-     * <p>It used to also be passed as the {@code JX_*} variables — the shape the OSRS gamepack reads
-     * in Jagex-account mode, which really does produce a "Play Now" screen with the character's name
-     * on it. That screen then authenticates against Jagex's servers rather than ours, so clicking it
-     * fails and nothing reaches the server at all. A screen that looks right and cannot work is
-     * worse than no screen, so those are gone.
+     * <p>Two routes, and the token is the same string either way. By default it travels as a system
+     * property, which the client's own plugin reads and types into the ordinary login form on the
+     * player's behalf. Under {@link Config#JAGEX_MODE} it ALSO goes into the {@code JX_*} variables,
+     * which puts the gamepack into Jagex-account mode: a real "Play Now" screen with the character's
+     * name on it and no login form at all. That route works, and needs a client whose jav_config
+     * points at our auth host — see {@link Config#JAGEX_MODE}.
      *
      * @param launchToken the one-shot token from the backend, or null to start the client with the
      *     ordinary login screen.
@@ -79,10 +77,10 @@ public final class GameClient {
 
         ProcessBuilder pb = new ProcessBuilder(command);
         if (hasToken && Config.JAGEX_MODE) {
-            // Exactly rsprox's shape, which is the only arrangement known to put a client into
-            // account mode against something other than Jagex. ACCESS and REFRESH stay EMPTY —
-            // filling ACCESS is what the first attempt did, and a filled access token is something
-            // the gamepack goes off to validate upstream.
+            // Exactly rsprox's shape, and the arrangement that works. ACCESS and REFRESH stay
+            // EMPTY — a filled access token is something the gamepack goes off to validate
+            // upstream. The session id is the launch token, so it comes back to us as the bearer
+            // on the gamepack's own token call.
             pb.environment().put("JX_SESSION_ID", launchToken);
             pb.environment().put("JX_CHARACTER_ID", Integer.toString(accountId));
             pb.environment().put("JX_DISPLAY_NAME", displayName == null ? "" : displayName);
