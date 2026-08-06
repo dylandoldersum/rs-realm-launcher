@@ -156,10 +156,17 @@ jobs:
           fi
           files=$(find bundles -type f | tr '\n' ' ')
           echo "Publishing $tag with: $files"
-          # --target is harmless on a tag that already exists and is what creates it otherwise.
-          gh release create "$tag" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "RS-Realm Launcher ${tag#launcher-v}" \
-            --generate-notes \
-            $files
+          # Idempotent on purpose. A release may already exist because a slow runner meant the
+          # first bundles were published by hand and this run is only adding the rest; creating
+          # would fail outright there, and failing after a successful build helps nobody.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag exists; uploading into it."
+            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber $files
+          else
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "RS-Realm Launcher ${tag#launcher-v}" \
+              --generate-notes \
+              $files
+          fi
