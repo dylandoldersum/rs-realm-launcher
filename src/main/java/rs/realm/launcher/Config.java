@@ -72,14 +72,16 @@ public final class Config {
      * the connection to {@code HttpsURLConnection}), and must answer the token call with the bare
      * token as plain text — the gamepack does not parse that response, it swallows the whole body.
      *
-     * <p>Requires a client whose jav_config points at our auth host. A client built against the
-     * stock config still reaches Jagex and cannot log in, which is why this is not on by default.
+     * <p>Requires the hosted jav_config to point its auth params at our own host, which it now
+     * does. The client reads that file at every startup rather than baking it in, so this works
+     * with clients that shipped before the change.
      *
-     * <p>The fallback stays: without this, the client's own plugin types the launch token into the
-     * ordinary login form. The only visible difference is one frame of login screen.
+     * <p>Turn it OFF with {@code -Drsrealm.jagexmode=false} and the client's own plugin types the
+     * launch token into the ordinary login form instead. That route still works and is the thing to
+     * fall back to if account mode ever breaks on a client update.
      */
     public static final boolean JAGEX_MODE =
-        Boolean.parseBoolean(System.getProperty("rsrealm.jagexmode", "false"));
+        Boolean.parseBoolean(System.getProperty("rsrealm.jagexmode", "true"));
 
     /** Extra JVM args passed to the client process (heap, etc.). */
     public static final String[] CLIENT_JVM_ARGS = {"-Xmx768m", "-Xss2m"};
