@@ -101,7 +101,10 @@ val bundledRuntime by tasks.registering(Exec::class) {
 }
 
 fun packageArgs(type: String, destination: File): List<String> {
-    val icon = if (currentOs.isWindows) "icons/app.ico" else "icons/app.icns"
+    // From packaging/, not from src/main/resources/. These are build inputs for jpackage and never
+    // read at runtime; under resources they were packed into the jar, where 3 MB of .icns and .ico
+    // did nothing but make the portable download bigger.
+    val icon = if (currentOs.isWindows) "app.ico" else "app.icns"
     return listOf(
         jdkTool("jpackage"),
         "--type", type,
@@ -112,7 +115,7 @@ fun packageArgs(type: String, destination: File): List<String> {
         "--main-jar", "rs-realm-launcher.jar",
         "--main-class", "rs.realm.launcher.Launcher",
         "--runtime-image", runtimeDir.get().asFile.absolutePath,
-        "--icon", file("src/main/resources/$icon").absolutePath,
+        "--icon", file("packaging/icons/$icon").absolutePath,
         "--dest", destination.absolutePath,
     )
 }

@@ -70,8 +70,10 @@ merely warn.
 
 ### Icons
 
-`src/main/resources/icons/` holds `icon-source.png` (square art) and the generated `app.ico` and
-`app.icns`. Regenerate after changing the art:
+`packaging/icons/` holds `icon-source.png` (square art) and the generated `app.ico` and `app.icns`.
+They live outside `src/main/resources` on purpose: jpackage reads them at build time and the running
+app never does, so under resources they were simply packed into the jar and made the portable
+download 3 MB larger. Regenerate after changing the art:
 
 ```
 powershell -ExecutionPolicy Bypass -File tools\make-icons.ps1

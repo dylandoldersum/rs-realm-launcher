@@ -13,7 +13,10 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
 
 $root = Split-Path -Parent $PSScriptRoot
-$outDir = Join-Path $root "src\main\resources\icons"
+# Under packaging/, deliberately not under src/main/resources/. These files are consumed by jpackage
+# at build time and never read by the running app; in the resource tree they were packed into the
+# jar, adding 3 MB to the portable download for nothing.
+$outDir = Join-Path $root "packaging\icons"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 # The dedicated square icon art if there is any, otherwise the wide in-app logo. They are different
