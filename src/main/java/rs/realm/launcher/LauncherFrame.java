@@ -74,6 +74,12 @@ public final class LauncherFrame extends JFrame {
     private Phase phase = Phase.SIGNED_OUT;
     private Backend.Account account;
 
+    /** What the news panel is currently showing, so an unchanged poll can leave it alone. */
+    private List<Backend.News> shownNews;
+
+    /** The running game client, or null. Kept so an update is never offered on top of a live one. */
+    private Process runningClient;
+
     private final NewsPanel newsPanel = new NewsPanel();
     private final AdminPanel adminPanel = new AdminPanel();
     private final CardLayout centerCards = new CardLayout();
@@ -116,8 +122,9 @@ public final class LauncherFrame extends JFrame {
 
         actionButton.addActionListener(e -> onAction());
 
-        loadNews();
+        pollNews();
         pollPlayerCount();
+        pollClientUpdates();
         restoreSession();
     }
 
@@ -655,6 +662,7 @@ public final class LauncherFrame extends JFrame {
      * taskbar.
      */
     private void watchForExit(Process client) {
+        runningClient = client;
         Thread watcher =
                 new Thread(
                         () -> {
@@ -666,9 +674,13 @@ public final class LauncherFrame extends JFrame {
                             }
                             javax.swing.SwingUtilities.invokeLater(
                                     () -> {
+                                        runningClient = null;
                                         setState(NORMAL);
                                         toFront();
                                         requestFocus();
+                                        // The one moment an update can be applied without getting
+                                        // in anyone's way: they have just stopped playing.
+                                        checkForUpdatesQuietly();
                                         // Refresh straight away rather than waiting out the poll:
                                         // somebody just left, and a count that still includes them
                                         // is the one moment it is visibly wrong.
@@ -908,8 +920,31 @@ public final class LauncherFrame extends JFrame {
 
     // ----------------------------------------------------------------------------------- client ----
 
-    private void loadNews() {
-        newsPanel.setLoading();
+    /**
+     * Load the feed once, then keep it current while the window sits open.
+     *
+     * The server reads Discord at most once every five minutes and serves everyone the same
+     * snapshot, so polling costs a small JSON response and never a Discord request — which is what
+     * makes a one-minute interval reasonable rather than rude. It also means the feed cannot be
+     * fresher than that cache: a minute here buys reacting quickly once the snapshot turns over,
+     * not a minute-old feed.
+     */
+    private void pollNews() {
+        loadNews(true);
+        Timer timer = new Timer(NEWS_POLL_MILLIS, e -> loadNews(false));
+        timer.setRepeats(true);
+        timer.start();
+    }
+
+    /**
+     * @param firstLoad whether this is the initial fetch. A background refresh must not throw away
+     *     what is already on screen: no spinner, and a failed poll leaves the last good feed alone
+     *     rather than replacing a readable page with an error over one dropped request.
+     */
+    private void loadNews(boolean firstLoad) {
+        if (firstLoad) {
+            newsPanel.setLoading();
+        }
         new SwingWorker<List<Backend.News>, Void>() {
             @Override
             protected List<Backend.News> doInBackground() {
@@ -929,10 +964,18 @@ public final class LauncherFrame extends JFrame {
                     items = null;
                 }
                 if (items == null) {
-                    newsPanel.setError("Couldn't load updates.");
-                } else {
-                    newsPanel.setNews(items);
+                    if (firstLoad) {
+                        newsPanel.setError("Couldn't load updates.");
+                    }
+                    return;
                 }
+                // Rebuilding the panel resets the scroll position, so an unchanged feed must not
+                // touch it — otherwise reading a post would be interrupted every minute.
+                if (items.equals(shownNews)) {
+                    return;
+                }
+                shownNews = items;
+                newsPanel.setNews(items);
             }
         }.execute();
     }
@@ -1049,6 +1092,82 @@ public final class LauncherFrame extends JFrame {
             g2.fillRect(8, getHeight() - 3, getWidth() - 16, 2);
             g2.dispose();
         }
+    }
+
+    /**
+     * Notice a new client release while the launcher sits open.
+     *
+     * The manifest is served by raw.githubusercontent with a five-minute cache header, so asking
+     * more often than that returns the same bytes and only burns GitHub's rate limit — the interval
+     * matches the cache rather than the minute the news uses.
+     *
+     * Deliberately quiet: it changes the button and nothing else. No spinner, no status text, and
+     * no download starts on its own, because the player is the one who decides when to spend
+     * bandwidth. See {@link #canAcceptUpdateNotice()} for when it is allowed to speak at all.
+     */
+    private void pollClientUpdates() {
+        Timer timer = new Timer(UPDATE_POLL_MILLIS, e -> checkForUpdatesQuietly());
+        timer.setRepeats(true);
+        timer.start();
+    }
+
+    private void checkForUpdatesQuietly() {
+        if (!canAcceptUpdateNotice()) {
+            return;
+        }
+        new SwingWorker<Manifest, Void>() {
+            @Override
+            protected Manifest doInBackground() {
+                try {
+                    return Manifest.fetch(Config.MANIFEST_URL);
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+
+            @Override
+            protected void done() {
+                Manifest fetched = null;
+                try {
+                    fetched = get();
+                } catch (Exception e) {
+                    fetched = null;
+                }
+                // A failed poll says nothing. The launcher already has a working client and the
+                // next tick will try again; announcing "couldn't reach the update server" over one
+                // dropped request would be noise about a problem the player does not have.
+                if (fetched == null) {
+                    return;
+                }
+                // Re-checked because the fetch took time: the player may have pressed Play, or a
+                // download may have started, while it was in flight.
+                if (!canAcceptUpdateNotice()) {
+                    return;
+                }
+                String installed = Installer.installedVersion();
+                if (installed == null || installed.equals(fetched.version())) {
+                    return;
+                }
+                remote = fetched;
+                statusLabel.setText("Client " + fetched.version() + " is available.");
+                applyState(Phase.UPDATE);
+            }
+        }.execute();
+    }
+
+    /**
+     * Whether it is safe to turn the Play button into an Update button right now.
+     *
+     * Only when the launcher is idle with a client already installed. Doing it mid-download would
+     * fight the work in progress, and doing it while the game is running would offer to overwrite
+     * the jar of a client that is playing on it — the update would be applied under a live process,
+     * which on Windows fails outright and elsewhere corrupts a running session.
+     */
+    private boolean canAcceptUpdateNotice() {
+        if (phase != Phase.PLAY && phase != Phase.OFFLINE) {
+            return false;
+        }
+        return runningClient == null || !runningClient.isAlive();
     }
 
     private void checkForUpdates() {
@@ -1305,6 +1424,18 @@ public final class LauncherFrame extends JFrame {
 
     /** Half a minute. Often enough to feel live, rare enough to be nothing on the server. */
     private static final int PLAYER_COUNT_POLL_MILLIS = 30_000;
+
+    /**
+     * A minute. The server caches the Discord read for five, so this never reaches Discord — it
+     * costs one small JSON response and picks up a new post shortly after that cache turns over.
+     */
+    private static final int NEWS_POLL_MILLIS = 60_000;
+
+    /**
+     * Five minutes, matching the cache header raw.githubusercontent serves the manifest with.
+     * Asking more often returns the same bytes from the CDN and buys nothing.
+     */
+    private static final int UPDATE_POLL_MILLIS = 5 * 60_000;
 
     /** Card names for the middle of the window. */
     private static final String TAB_NEWS = "news";
