@@ -3,6 +3,7 @@ package rs.realm.launcher;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
@@ -74,6 +75,12 @@ public final class LauncherFrame extends JFrame {
     private Backend.Account account;
 
     private final NewsPanel newsPanel = new NewsPanel();
+    private final AdminPanel adminPanel = new AdminPanel();
+    private final CardLayout centerCards = new CardLayout();
+    private final JPanel center = new JPanel(centerCards);
+    private final JPanel tabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 14));
+    private final TabButton newsTab = new TabButton("News", () -> showTab(TAB_NEWS));
+    private final TabButton adminTab = new TabButton("Admin", () -> showTab(TAB_ADMIN));
     private final JLabel statusLabel = new JLabel(" ", SwingConstants.CENTER);
     private final JLabel versionLabel = new JLabel(" ", SwingConstants.CENTER);
     private final JLabel playerCountLabel = new JLabel(" ", SwingConstants.CENTER);
@@ -99,7 +106,11 @@ public final class LauncherFrame extends JFrame {
         root.setBackground(Theme.BACKGROUND);
         root.setBorder(BorderFactory.createLineBorder(Theme.BORDER, 1));
         root.add(buildTitleBar(), BorderLayout.NORTH);
-        root.add(newsPanel, BorderLayout.CENTER);
+        center.setOpaque(false);
+        center.add(newsPanel, TAB_NEWS);
+        center.add(adminPanel, TAB_ADMIN);
+        root.add(center, BorderLayout.CENTER);
+        showTab(TAB_NEWS);
         root.add(buildSidePanel(), BorderLayout.EAST);
         setContentPane(root);
 
@@ -169,6 +180,14 @@ public final class LauncherFrame extends JFrame {
         JComponent title = buildTitleMark();
         bar.add(title, BorderLayout.WEST);
 
+        // Hidden until there is more than one tab to switch between. A lone "News" button that does
+        // nothing is worse than no button.
+        tabs.setOpaque(false);
+        tabs.setVisible(false);
+        tabs.add(newsTab);
+        tabs.add(adminTab);
+        bar.add(tabs, BorderLayout.CENTER);
+
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 12));
         right.setOpaque(false);
         right.add(buildAccountChip());
@@ -196,6 +215,10 @@ public final class LauncherFrame extends JFrame {
         bar.addMouseMotionListener(drag);
         title.addMouseListener(drag);
         title.addMouseMotionListener(drag);
+        // The tab strip covers the middle of the bar, and a child swallows the events its parent
+        // would otherwise have received — without this, the widest part of the bar stops dragging.
+        tabs.addMouseListener(drag);
+        tabs.addMouseMotionListener(drag);
         return bar;
     }
 
@@ -676,6 +699,7 @@ public final class LauncherFrame extends JFrame {
                 setProfiles(List.of());
                 characterWrapper.setVisible(false);
                 statusLabel.setText(" ");
+                setAdminAvailable(null);
                 applyState(Phase.SIGNED_OUT);
             }
         }.execute();
@@ -686,6 +710,9 @@ public final class LauncherFrame extends JFrame {
         Avatar.loadCircular(accountAvatar, signedIn.avatarUrl(), 32, signedIn.username());
         accountChip.setVisible(true);
         accountChip.revalidate();
+        // Both a fresh sign-in and a restored session land here, so this is the one place that has
+        // to ask.
+        refreshAdmin();
     }
 
     // -------------------------------------------------------------------------------- profiles ----
@@ -908,6 +935,120 @@ public final class LauncherFrame extends JFrame {
                 }
             }
         }.execute();
+    }
+
+    // ------------------------------------------------------------------------------------ admin ----
+
+    /**
+     * Ask the server whether this account is an admin, and add the tab if it says yes.
+     *
+     * The question is asked by fetching the data: there is no separate "am I an admin" call to get
+     * out of step with the real check. A 403 comes back as null and the tab simply never appears,
+     * which is also what happens for a network failure — a launcher that showed an empty Admin tab
+     * because the request timed out would be a worse lie than showing nothing.
+     *
+     * Called after sign-in, so a signed-out launcher never asks.
+     */
+    private void refreshAdmin() {
+        new SwingWorker<Backend.AdminOverview, Void>() {
+            @Override
+            protected Backend.AdminOverview doInBackground() {
+                try {
+                    return backend.adminOverview();
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+
+            @Override
+            protected void done() {
+                Backend.AdminOverview overview = null;
+                try {
+                    overview = get();
+                } catch (Exception e) {
+                    overview = null;
+                }
+                setAdminAvailable(overview);
+            }
+        }.execute();
+    }
+
+    private void setAdminAvailable(Backend.AdminOverview overview) {
+        boolean allowed = overview != null;
+        tabs.setVisible(allowed);
+        adminTab.setVisible(allowed);
+        if (allowed) {
+            adminPanel.setOverview(overview);
+        } else {
+            // Signing out of an admin account must not leave the tab behind for whoever signs in
+            // next on the same machine.
+            showTab(TAB_NEWS);
+        }
+        tabs.revalidate();
+        tabs.repaint();
+    }
+
+    private void showTab(String name) {
+        centerCards.show(center, name);
+        newsTab.setSelected(TAB_NEWS.equals(name));
+        adminTab.setSelected(TAB_ADMIN.equals(name));
+        // Reopening Admin should show current numbers, not whatever they were at sign-in.
+        if (TAB_ADMIN.equals(name)) {
+            refreshAdmin();
+        }
+    }
+
+    /** A flat text tab. Underlined when selected; there is no box, so it stays out of the way. */
+    private static final class TabButton extends JLabel {
+
+        private boolean selected;
+
+        TabButton(String text, Runnable action) {
+            super(text);
+            setFont(new Font("SansSerif", Font.BOLD, 13));
+            setForeground(Theme.SUBTEXT);
+            setBorder(BorderFactory.createEmptyBorder(4, 10, 4, 10));
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            addMouseListener(
+                    new MouseAdapter() {
+                        @Override
+                        public void mousePressed(MouseEvent e) {
+                            action.run();
+                        }
+
+                        @Override
+                        public void mouseEntered(MouseEvent e) {
+                            if (!selected) {
+                                setForeground(Theme.TEXT);
+                            }
+                        }
+
+                        @Override
+                        public void mouseExited(MouseEvent e) {
+                            if (!selected) {
+                                setForeground(Theme.SUBTEXT);
+                            }
+                        }
+                    });
+        }
+
+        void setSelected(boolean selected) {
+            this.selected = selected;
+            setForeground(selected ? Theme.TEXT : Theme.SUBTEXT);
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (!selected) {
+                return;
+            }
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setColor(Theme.GOLD);
+            g2.fillRect(8, getHeight() - 3, getWidth() - 16, 2);
+            g2.dispose();
+        }
     }
 
     private void checkForUpdates() {
@@ -1164,6 +1305,11 @@ public final class LauncherFrame extends JFrame {
 
     /** Half a minute. Often enough to feel live, rare enough to be nothing on the server. */
     private static final int PLAYER_COUNT_POLL_MILLIS = 30_000;
+
+    /** Card names for the middle of the window. */
+    private static final String TAB_NEWS = "news";
+
+    private static final String TAB_ADMIN = "admin";
 
     /** Discord's brand blurple, so the sign-in button reads as "this opens Discord". */
     private static final Color DISCORD = new Color(0x58, 0x65, 0xF2);

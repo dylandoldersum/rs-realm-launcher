@@ -38,6 +38,27 @@ public final class Backend {
     /** What the backend says about starting a Discord login. */
     public record OAuthConfig(String clientId, String redirectUri, boolean enabled) {}
 
+    /** One character under a Discord account, for the admin list. */
+    public record AdminProfile(String name, String lastLogin) {
+
+        /** Signed up but never actually played. */
+        public boolean neverPlayed() {
+            return lastLogin == null || lastLogin.isBlank();
+        }
+    }
+
+    /** One Discord account that has linked at least one character. */
+    public record AdminUser(
+            String discordId, String username, String linkedAt, List<AdminProfile> profiles) {}
+
+    /** The admin overview. Only ever returned to a Discord id the server considers an admin. */
+    public record AdminOverview(
+            int discordUsers,
+            int profiles,
+            int profilesPlayed,
+            int profilesNeverPlayed,
+            List<AdminUser> users) {}
+
     private final HttpClient http =
             HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
@@ -203,6 +224,52 @@ public final class Backend {
         return out;
     }
 
+    /**
+     * The admin overview, or {@code null} when this account is not an admin.
+     *
+     * The server decides that, not the launcher: a 403 here is the answer, and the caller uses it to
+     * leave the Admin tab off the window. Hiding the tab is cosmetic — the list itself is protected
+     * on the other end, so a modified launcher gains nothing by showing the tab anyway.
+     */
+    public AdminOverview adminOverview() throws IOException {
+        Map<String, Object> body;
+        try {
+            body = send("GET", "/admin/overview", null);
+        } catch (NotAllowedException e) {
+            return null;
+        }
+
+        List<AdminUser> users = new ArrayList<>();
+        for (Map<String, Object> user : Json.objects(body, "users")) {
+            List<AdminProfile> profiles = new ArrayList<>();
+            for (Map<String, Object> profile : Json.objects(user, "profiles")) {
+                profiles.add(
+                        new AdminProfile(
+                                Json.str(profile, "name", ""), Json.str(profile, "last_login", "")));
+            }
+            users.add(
+                    new AdminUser(
+                            Json.str(user, "discord_id", ""),
+                            Json.str(user, "discord_username", ""),
+                            Json.str(user, "linked_at", ""),
+                            profiles));
+        }
+
+        return new AdminOverview(
+                Json.number(body, "discord_users", 0),
+                Json.number(body, "profiles", 0),
+                Json.number(body, "profiles_played", 0),
+                Json.number(body, "profiles_never_played", 0),
+                users);
+    }
+
+    /** A 403. Separate from a plain failure so a caller can treat "not you" as a normal answer. */
+    public static final class NotAllowedException extends IOException {
+        NotAllowedException(String message) {
+            super(message);
+        }
+    }
+
     private Map<String, Object> send(String method, String path, String body) throws IOException {
         HttpRequest.Builder builder =
                 HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(15));
@@ -228,6 +295,9 @@ public final class Backend {
         int status = response.statusCode();
         if (status >= 200 && status < 300) {
             return parsed;
+        }
+        if (status == 403) {
+            throw new NotAllowedException(Json.str(parsed, "error", "not allowed"));
         }
         if (status == 401) {
             // The session expired or was revoked. Drop it so the window falls back to the sign-in
