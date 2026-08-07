@@ -1,5 +1,6 @@
 package rs.realm.launcher;
 
+import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -11,10 +12,12 @@ import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Image;
+import java.awt.LinearGradientPaint;
 import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.geom.Point2D;
 import java.util.ArrayList;
 import java.util.List;
 import javax.imageio.ImageIO;
@@ -160,9 +163,10 @@ public final class LauncherFrame extends JFrame {
         bar.setPreferredSize(new Dimension(0, 52));
         bar.setBorder(BorderFactory.createEmptyBorder(0, 18, 0, 8));
 
-        JLabel title = new JLabel(Config.BRAND);
-        title.setForeground(Theme.TEXT);
-        title.setFont(new Font("SansSerif", Font.BOLD, 15));
+        // The crest rather than the word. `logo.png` is a wordmark sized for a header, and at the
+        // 30 pixels this bar allows its lettering is a smudge; `icon.png` is the square art the
+        // app icon is cut from, which still reads at that size.
+        JComponent title = buildTitleMark();
         bar.add(title, BorderLayout.WEST);
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 12));
@@ -231,7 +235,9 @@ public final class LauncherFrame extends JFrame {
     // ----------------------------------------------------------------------------- side panel ----
 
     private JComponent buildSidePanel() {
-        JPanel side = new JPanel();
+        // The artwork lives behind the controls rather than beside them: this column is 340px wide
+        // and every pixel spent on a picture is one the Play button does not get.
+        JPanel side = new ArtPanel("/sidebar-art.jpg");
         side.setBackground(Theme.PANEL);
         side.setLayout(new BoxLayout(side, BoxLayout.Y_AXIS));
         side.setPreferredSize(new Dimension(340, 0));
@@ -239,10 +245,8 @@ public final class LauncherFrame extends JFrame {
                 BorderFactory.createMatteBorder(0, 1, 0, 0, Theme.BORDER),
                 BorderFactory.createEmptyBorder(24, 26, 24, 26)));
 
-        JComponent logo = buildLogo();
-        logo.setAlignmentX(Component.CENTER_ALIGNMENT);
-        side.add(logo);
-        side.add(Box.createVerticalStrut(22));
+        // No logo here any more — it moved to the title bar. Repeating it would cost the artwork
+        // the top third of the column for no new information.
 
         actionButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 48));
         actionButton.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -316,6 +320,113 @@ public final class LauncherFrame extends JFrame {
     }
 
     private JComponent characterWrapper;
+
+    /** The crest in the title bar, with the brand name as the fallback if the art is missing. */
+    private JComponent buildTitleMark() {
+        try {
+            var url = getClass().getResource("/icon.png");
+            if (url != null) {
+                java.awt.image.BufferedImage img = ImageIO.read(url);
+                int h = 30;
+                int w = Math.max(1, (int) Math.round(img.getWidth() * (h / (double) img.getHeight())));
+                JLabel mark = new JLabel(new ImageIcon(img.getScaledInstance(w, h, Image.SCALE_SMOOTH)));
+                mark.setPreferredSize(new Dimension(w, h));
+                return mark;
+            }
+        } catch (Exception ignored) {
+            // fall through to the word
+        }
+        JLabel title = new JLabel(Config.BRAND);
+        title.setForeground(Theme.TEXT);
+        title.setFont(new Font("SansSerif", Font.BOLD, 15));
+        return title;
+    }
+
+    /**
+     * A panel that paints artwork behind its children, solid along the bottom edge and fading out
+     * towards the top.
+     *
+     * <p>The fade is what makes this usable rather than decorative: the controls sit in the upper
+     * half, and a picture at full strength behind them would make the character dropdown and the
+     * status line hard to read. Alpha is applied at paint time rather than baked into the file, so
+     * the source stays an ordinary opaque jpeg — a pre-faded PNG with an alpha channel would be
+     * several times the size for the same result.
+     *
+     * <p>The scaled-and-faded result is cached per panel size. Without that, every repaint would
+     * rescale a 1080x2280 image and rebuild the gradient, which is visible as lag while dragging.
+     */
+    private static final class ArtPanel extends JPanel {
+        /** How far up the fade reaches. Below this the art is untouched; above it it is gone. */
+        private static final float FADE_TOP = 0.05f;
+        private static final float FADE_BOTTOM = 0.62f;
+
+        /** Full strength at the bottom edge. Lower this if text over the art becomes hard to read. */
+        private static final float MAX_ALPHA = 1.0f;
+
+        private final java.awt.image.BufferedImage source;
+        private java.awt.image.BufferedImage cached;
+        private int cachedW = -1;
+        private int cachedH = -1;
+
+        ArtPanel(String resource) {
+            java.awt.image.BufferedImage img = null;
+            try {
+                var url = getClass().getResource(resource);
+                if (url != null) {
+                    img = ImageIO.read(url);
+                }
+            } catch (Exception ignored) {
+                // A missing backdrop is a cosmetic loss, not a reason to fail to start.
+            }
+            this.source = img;
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (source == null) {
+                return;
+            }
+            int w = getWidth();
+            int h = getHeight();
+            if (w <= 0 || h <= 0) {
+                return;
+            }
+            if (cached == null || cachedW != w || cachedH != h) {
+                cached = render(w, h);
+                cachedW = w;
+                cachedH = h;
+            }
+            g.drawImage(cached, 0, 0, null);
+        }
+
+        /** Scales the art to cover the panel, anchors it to the bottom, then erases the top. */
+        private java.awt.image.BufferedImage render(int w, int h) {
+            java.awt.image.BufferedImage out =
+                    new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = out.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+
+            // Cover, not fit: scale by whichever axis leaves no empty edge, and let the overflow
+            // run off the top, which is sky.
+            double scale = Math.max(w / (double) source.getWidth(), h / (double) source.getHeight());
+            int sw = (int) Math.ceil(source.getWidth() * scale);
+            int sh = (int) Math.ceil(source.getHeight() * scale);
+            g.drawImage(source, (w - sw) / 2, h - sh, sw, sh, null);
+
+            // DST_IN keeps the destination only where the incoming paint is opaque, so painting a
+            // transparent-to-opaque ramp over it erases the top and leaves the bottom untouched.
+            g.setComposite(AlphaComposite.DstIn);
+            g.setPaint(new LinearGradientPaint(
+                    new Point2D.Float(0, h * FADE_TOP),
+                    new Point2D.Float(0, h * FADE_BOTTOM),
+                    new float[] {0f, 1f},
+                    new Color[] {new Color(0f, 0f, 0f, 0f), new Color(0f, 0f, 0f, MAX_ALPHA)}));
+            g.fillRect(0, 0, w, h);
+            g.dispose();
+            return out;
+        }
+    }
 
     private JComponent buildLogo() {
         java.awt.image.BufferedImage img = null;
