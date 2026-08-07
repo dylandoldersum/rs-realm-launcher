@@ -52,6 +52,18 @@ public final class Backend {
     public record AdminUser(
             String discordId, String username, String linkedAt, List<AdminProfile> profiles) {}
 
+    /** One player currently in the game world. */
+    public record OnlinePlayer(String name, int x, int z, int level, int donatedCents) {
+
+        /** The rank label, derived here so the launcher does not need the thresholds twice. */
+        public String rank() {
+            if (donatedCents >= 50_000) return "Rich kid";
+            if (donatedCents >= 10_000) return "Extreme";
+            if (donatedCents >= 2_500) return "Super";
+            return donatedCents >= 1 ? "Donator" : "";
+        }
+    }
+
     /** The admin overview. Only ever returned to a Discord id the server considers an admin. */
     public record AdminOverview(
             int discordUsers,
@@ -265,6 +277,53 @@ public final class Backend {
                 Json.number(body, "profiles_played", 0),
                 Json.number(body, "profiles_never_played", 0),
                 users);
+    }
+
+    /** Everyone currently online. Empty when the caller is not an admin. */
+    public List<OnlinePlayer> adminOnlinePlayers() throws IOException {
+        Map<String, Object> body;
+        try {
+            body = send("GET", "/auth/admin/players", null);
+        } catch (NotAllowedException e) {
+            return List.of();
+        }
+        List<OnlinePlayer> out = new ArrayList<>();
+        for (Map<String, Object> item : Json.objects(body, "players")) {
+            out.add(
+                    new OnlinePlayer(
+                            Json.str(item, "name", ""),
+                            Json.number(item, "x", 0),
+                            Json.number(item, "z", 0),
+                            Json.number(item, "level", 0),
+                            Json.number(item, "donated_cents", 0)));
+        }
+        return out;
+    }
+
+    /**
+     * Queue an action against the live world.
+     *
+     * The server answers "queued", not "done" — it applies the action on the game loop a tick later,
+     * so a success here means it was accepted, not that it landed. The caller's wording should
+     * match.
+     */
+    public void adminAction(Map<String, String> fields) throws IOException {
+        StringBuilder json = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, String> entry : fields.entrySet()) {
+            if (!first) {
+                json.append(',');
+            }
+            first = false;
+            json.append('"').append(entry.getKey()).append("\":\"").append(escapeJson(entry.getValue())).append('"');
+        }
+        json.append('}');
+        send("POST", "/auth/admin/action", json.toString());
+    }
+
+    /** Minimal escaping — these values are admin-typed text, but a stray quote must not break the body. */
+    private static String escapeJson(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ");
     }
 
     /** A 403. Separate from a plain failure so a caller can treat "not you" as a normal answer. */
