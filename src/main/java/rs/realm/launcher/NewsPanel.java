@@ -318,7 +318,7 @@ public final class NewsPanel extends JPanel {
         meta.add(date, BorderLayout.WEST);
 
         if (!item.author().isBlank()) {
-            meta.add(new AuthorTag("Author: " + item.author()), BorderLayout.EAST);
+            meta.add(new AuthorTag("Author: ", item.author()), BorderLayout.EAST);
         }
         // The row must not eat the height a BoxLayout would hand it.
         meta.setMaximumSize(new Dimension(Integer.MAX_VALUE, meta.getPreferredSize().height));
@@ -329,7 +329,11 @@ public final class NewsPanel extends JPanel {
     }
 
     /**
-     * The author's name in gold, with a glow behind it.
+     * A quiet "Author:" and then the name in gold, glowing.
+     *
+     * Only the name lights up. The label is scaffolding — it says what the thing next to it is, and
+     * giving it the same treatment would spread the emphasis over three words instead of the one
+     * that identifies a person.
      *
      * The glow is drawn rather than faked with a shadow: the text is painted a few times at growing
      * offsets with a low alpha, which sums to a soft halo, and then once crisply on top. Swing has
@@ -348,20 +352,25 @@ public final class NewsPanel extends JPanel {
         /** The eight compass directions, as dx/dy pairs — one ring's worth of offsets. */
         private static final int[] RING = {-1, -1, 0, -1, 1, -1, -1, 0, 1, 0, -1, 1, 0, 1, 1, 1};
 
-        private final String text;
+        private final String label;
+        private final String name;
+        private final Font labelFont = Theme.SMALL;
+        private final Font nameFont = new Font("SansSerif", Font.BOLD, 11);
 
-        AuthorTag(String text) {
-            this.text = text;
-            setFont(new Font("SansSerif", Font.BOLD, 11));
-            // Room for the halo, or it is clipped at the card's edge.
-            setBorder(BorderFactory.createEmptyBorder(2, GLOW_PASSES, 2, GLOW_PASSES));
+        AuthorTag(String label, String name) {
+            this.label = label;
+            this.name = name;
+            // Room on the right for the halo, or it is clipped at the card's edge.
+            setBorder(BorderFactory.createEmptyBorder(2, 0, 2, GLOW_PASSES));
         }
 
         @Override
         public Dimension getPreferredSize() {
             Insets insets = getInsets();
-            int width = getFontMetrics(getFont()).stringWidth(text);
-            int height = getFontMetrics(getFont()).getHeight();
+            int width =
+                    getFontMetrics(labelFont).stringWidth(label)
+                            + getFontMetrics(nameFont).stringWidth(name);
+            int height = Math.max(getFontMetrics(labelFont).getHeight(), getFontMetrics(nameFont).getHeight());
             return new Dimension(
                     width + insets.left + insets.right, height + insets.top + insets.bottom);
         }
@@ -370,12 +379,18 @@ public final class NewsPanel extends JPanel {
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            g2.setFont(getFont());
 
             Insets insets = getInsets();
             int x = insets.left;
-            int y = insets.top + g2.getFontMetrics().getAscent();
+            // Both runs sit on one baseline, taken from the taller font so neither is clipped.
+            int y = insets.top + Math.max(getFontMetrics(labelFont).getAscent(), getFontMetrics(nameFont).getAscent());
 
+            g2.setFont(labelFont);
+            g2.setColor(Theme.SUBTEXT);
+            g2.drawString(label, x, y);
+            x += g2.getFontMetrics().stringWidth(label);
+
+            g2.setFont(nameFont);
             // A ring of eight offsets per radius rather than a filled square. A square grid piles
             // dozens of passes onto the centre, which reads as a boxy smudge instead of light —
             // and costs ~80 draws where this costs 24.
@@ -383,12 +398,12 @@ public final class NewsPanel extends JPanel {
                 // Fainter the further out it reaches.
                 g2.setColor(new Color(GLOW.getRed(), GLOW.getGreen(), GLOW.getBlue(), 46 / radius));
                 for (int corner = 0; corner < RING.length; corner += 2) {
-                    g2.drawString(text, x + RING[corner] * radius, y + RING[corner + 1] * radius);
+                    g2.drawString(name, x + RING[corner] * radius, y + RING[corner + 1] * radius);
                 }
             }
 
             g2.setColor(GOLD);
-            g2.drawString(text, x, y);
+            g2.drawString(name, x, y);
             g2.dispose();
         }
     }
