@@ -33,7 +33,8 @@ public final class Backend {
     public record Account(String discordId, String username, String avatarUrl) {}
 
     /** One post from the announcements channel. */
-    public record News(String title, String body, String timestamp, String imageUrl) {}
+    public record News(
+            String title, String body, String timestamp, String imageUrl, String author) {}
 
     /** What the backend says about starting a Discord login. */
     public record OAuthConfig(String clientId, String redirectUri, boolean enabled) {}
@@ -107,7 +108,8 @@ public final class Backend {
                             Json.str(item, "title", ""),
                             Json.str(item, "body", ""),
                             Json.str(item, "timestamp", ""),
-                            Json.str(item, "image_url", null)));
+                            Json.str(item, "image_url", null),
+                            Json.str(item, "author", "")));
         }
         return out;
     }

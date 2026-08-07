@@ -3,13 +3,17 @@ package rs.realm.launcher;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
@@ -26,6 +30,7 @@ import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JViewport;
 import javax.swing.ScrollPaneConstants;
+import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.plaf.basic.BasicScrollBarUI;
 
@@ -51,9 +56,20 @@ public final class NewsPanel extends JPanel {
     /** The newest post gets the full width and a taller image — it is the one people came for. */
     private static final int HERO_IMAGE_HEIGHT = 180;
 
+    /** One hero plus a 2x2 grid under it. */
+    private static final int PER_PAGE = 5;
+
     private final JPanel column = new JPanel();
     private final JPanel grid = new JPanel(new GridLayout(0, 2, 14, 14));
     private final JLabel emptyLabel = new JLabel("No updates yet.");
+
+    private List<Backend.News> items = List.of();
+    private int page;
+
+    private final JPanel footer = new JPanel(new BorderLayout());
+    private final JLabel pageLabel = new JLabel("", SwingConstants.CENTER);
+    private final PageArrow previous = new PageArrow("< Newer", () -> turnTo(page - 1));
+    private final PageArrow next = new PageArrow("Older >", () -> turnTo(page + 1));
 
     public NewsPanel() {
         super(new BorderLayout());
@@ -101,6 +117,17 @@ public final class NewsPanel extends JPanel {
         scroll.getVerticalScrollBar().setUnitIncrement(18);
         styleScrollBar(scroll.getVerticalScrollBar());
         add(scroll, BorderLayout.CENTER);
+
+        footer.setOpaque(false);
+        footer.setBorder(BorderFactory.createEmptyBorder(12, 0, 0, 12));
+        pageLabel.setForeground(Theme.SUBTEXT);
+        pageLabel.setFont(Theme.SMALL);
+        footer.add(previous, BorderLayout.WEST);
+        footer.add(pageLabel, BorderLayout.CENTER);
+        footer.add(next, BorderLayout.EAST);
+        // Only appears once there is a second page — a pager over a single page is furniture.
+        footer.setVisible(false);
+        add(footer, BorderLayout.SOUTH);
     }
 
     /** Shows a "still loading" line; replaced by {@link #setNews} or {@link #setError}. */
@@ -129,34 +156,118 @@ public final class NewsPanel extends JPanel {
      * to read, and the older ones are there to be skimmed. Giving the first a hero card and a bigger
      * image says that without needing a label.
      */
-    public void setNews(List<Backend.News> items) {
+    public void setNews(List<Backend.News> fetched) {
+        // Somebody who has paged back through the archive stays where they are; only a reader on
+        // the first page is moved, and there the move IS the point — that is where a new post lands.
+        boolean onFirstPage = page == 0;
+        this.items = List.copyOf(fetched);
+        this.page = onFirstPage ? 0 : Math.min(page, Math.max(0, pageCount() - 1));
+        render();
+    }
+
+    private int pageCount() {
+        return (int) Math.ceil(items.size() / (double) PER_PAGE);
+    }
+
+    private void turnTo(int target) {
+        if (target < 0 || target >= pageCount() || target == page) {
+            return;
+        }
+        page = target;
+        render();
+    }
+
+    private void render() {
         column.removeAll();
         grid.removeAll();
         if (items.isEmpty()) {
+            footer.setVisible(false);
             showMessage("No updates yet.");
             return;
         }
 
-        JComponent hero = card(items.get(0), true, HERO_IMAGE_HEIGHT, 20);
+        int from = page * PER_PAGE;
+        List<Backend.News> shown = items.subList(from, Math.min(from + PER_PAGE, items.size()));
+
+        JComponent hero = card(shown.get(0), true, HERO_IMAGE_HEIGHT, 20);
         hero.setAlignmentX(Component.LEFT_ALIGNMENT);
         hero.setMaximumSize(new Dimension(Integer.MAX_VALUE, HERO_IMAGE_HEIGHT + 120));
         column.add(hero);
 
-        if (items.size() > 1) {
+        if (shown.size() > 1) {
             column.add(Box.createVerticalStrut(14));
-            for (Backend.News item : items.subList(1, items.size())) {
+            for (Backend.News item : shown.subList(1, shown.size())) {
                 grid.add(card(item, false, IMAGE_HEIGHT, 14));
             }
             grid.setAlignmentX(Component.LEFT_ALIGNMENT);
             // Rows of two, each row as tall as its image plus the text under it. Without a cap the
             // BoxLayout hands the grid every spare pixel of height and the cards stretch.
-            int rows = (int) Math.ceil((items.size() - 1) / 2.0);
+            int rows = (int) Math.ceil((shown.size() - 1) / 2.0);
             grid.setMaximumSize(
                     new Dimension(Integer.MAX_VALUE, rows * (IMAGE_HEIGHT + 110) + (rows - 1) * 14));
             column.add(grid);
         }
+
+        int pages = pageCount();
+        footer.setVisible(pages > 1);
+        pageLabel.setText(pages > 1 ? (page + 1) + " / " + pages : "");
+        previous.setEnabled(page > 0);
+        next.setEnabled(page < pages - 1);
+
         revalidate();
         repaint();
+    }
+
+    /**
+     * A page arrow.
+     *
+     * Worded by direction through time rather than "previous/next", because on a feed sorted newest
+     * first those two words point whichever way the reader assumes. Dimmed and unclickable at
+     * either end instead of hidden, so the pager does not change shape as you move through it.
+     */
+    private static final class PageArrow extends JLabel {
+
+        private final Runnable action;
+        private boolean enabled = true;
+
+        PageArrow(String text, Runnable action) {
+            super(text);
+            this.action = action;
+            setFont(new Font("SansSerif", Font.BOLD, 12));
+            setForeground(Theme.SUBTEXT);
+            setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+            addMouseListener(
+                    new MouseAdapter() {
+                        @Override
+                        public void mousePressed(MouseEvent e) {
+                            if (enabled) {
+                                action.run();
+                            }
+                        }
+
+                        @Override
+                        public void mouseEntered(MouseEvent e) {
+                            if (enabled) {
+                                setForeground(Theme.TEXT);
+                            }
+                        }
+
+                        @Override
+                        public void mouseExited(MouseEvent e) {
+                            setForeground(enabled ? Theme.SUBTEXT : Theme.BORDER);
+                        }
+                    });
+        }
+
+        @Override
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+            super.setEnabled(enabled);
+            setForeground(enabled ? Theme.SUBTEXT : Theme.BORDER);
+            setCursor(
+                    Cursor.getPredefinedCursor(
+                            enabled ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+        }
     }
 
     private JComponent card(Backend.News item, boolean hero, int imageHeight, int titleSize) {
@@ -195,14 +306,91 @@ public final class NewsPanel extends JPanel {
             text.add(Box.createVerticalStrut(8));
         }
 
+        // Date left, author right, on one line. A BorderLayout rather than a glue-filled box so the
+        // author sits against the right edge of the card whatever width the grid gives it.
+        JPanel meta = new JPanel(new BorderLayout());
+        meta.setOpaque(false);
+        meta.setAlignmentX(Component.LEFT_ALIGNMENT);
+
         JLabel date = new JLabel(formatDate(item.timestamp()));
         date.setForeground(Theme.SUBTEXT);
         date.setFont(Theme.SMALL);
-        date.setAlignmentX(Component.LEFT_ALIGNMENT);
-        text.add(date);
+        meta.add(date, BorderLayout.WEST);
+
+        if (!item.author().isBlank()) {
+            meta.add(new AuthorTag("Author: " + item.author()), BorderLayout.EAST);
+        }
+        // The row must not eat the height a BoxLayout would hand it.
+        meta.setMaximumSize(new Dimension(Integer.MAX_VALUE, meta.getPreferredSize().height));
+        text.add(meta);
 
         card.add(text, BorderLayout.CENTER);
         return card;
+    }
+
+    /**
+     * The author's name in gold, with a glow behind it.
+     *
+     * The glow is drawn rather than faked with a shadow: the text is painted a few times at growing
+     * offsets with a low alpha, which sums to a soft halo, and then once crisply on top. Swing has
+     * no blur, and a real one on a label this small would cost more than it shows.
+     */
+    private static final class AuthorTag extends JComponent {
+
+        /** Brighter than {@link Theme#GOLD}, which is an amber meant for a button, not for text. */
+        private static final Color GOLD = new Color(0xFF, 0xD5, 0x4A);
+
+        private static final Color GLOW = new Color(0xFF, 0xC8, 0x28);
+
+        /** How far the halo reaches. Beyond three rings it stops reading as light and gets muddy. */
+        private static final int GLOW_PASSES = 3;
+
+        /** The eight compass directions, as dx/dy pairs — one ring's worth of offsets. */
+        private static final int[] RING = {-1, -1, 0, -1, 1, -1, -1, 0, 1, 0, -1, 1, 0, 1, 1, 1};
+
+        private final String text;
+
+        AuthorTag(String text) {
+            this.text = text;
+            setFont(new Font("SansSerif", Font.BOLD, 11));
+            // Room for the halo, or it is clipped at the card's edge.
+            setBorder(BorderFactory.createEmptyBorder(2, GLOW_PASSES, 2, GLOW_PASSES));
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            Insets insets = getInsets();
+            int width = getFontMetrics(getFont()).stringWidth(text);
+            int height = getFontMetrics(getFont()).getHeight();
+            return new Dimension(
+                    width + insets.left + insets.right, height + insets.top + insets.bottom);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setFont(getFont());
+
+            Insets insets = getInsets();
+            int x = insets.left;
+            int y = insets.top + g2.getFontMetrics().getAscent();
+
+            // A ring of eight offsets per radius rather than a filled square. A square grid piles
+            // dozens of passes onto the centre, which reads as a boxy smudge instead of light —
+            // and costs ~80 draws where this costs 24.
+            for (int radius = GLOW_PASSES; radius >= 1; radius--) {
+                // Fainter the further out it reaches.
+                g2.setColor(new Color(GLOW.getRed(), GLOW.getGreen(), GLOW.getBlue(), 46 / radius));
+                for (int corner = 0; corner < RING.length; corner += 2) {
+                    g2.drawString(text, x + RING[corner] * radius, y + RING[corner + 1] * radius);
+                }
+            }
+
+            g2.setColor(GOLD);
+            g2.drawString(text, x, y);
+            g2.dispose();
+        }
     }
 
     /** Trimmed to fit — patch notes run long and a card is a teaser, not the article. */
