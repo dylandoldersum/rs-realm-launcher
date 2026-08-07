@@ -56,7 +56,9 @@ jobs:
             label: Portable jar
             task: jar
             suffix: portable
-            glob: build/libs/*.jar
+            # Named exactly, not *.jar: the packaging tasks also produce the bootstrap jar, and two
+            # matches here would silently overwrite each other under one name.
+            glob: build/libs/rs-realm-launcher.jar
 
     steps:
       - uses: actions/checkout@v5
@@ -137,6 +139,10 @@ jobs:
     # hatch for when a tag push does not reach Actions, which has happened.
     if: startsWith(github.ref, 'refs/tags/') || inputs.publish
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
       - uses: actions/download-artifact@v4
         with:
           path: bundles
@@ -169,4 +175,44 @@ jobs:
               --title "RS-Realm Launcher ${tag#launcher-v}" \
               --generate-notes \
               $files
+          fi
+
+      # Installed launchers read this file on every start and update themselves from it, so a
+      # release that does not update it reaches nobody who already has the launcher. Done here,
+      # AFTER the assets are uploaded: a manifest that points at a download which does not exist yet
+      # breaks every launcher that opens during the gap.
+      - name: Point installed launchers at this release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="launcher-v$VERSION"
+          fi
+          version="${tag#launcher-v}"
+          jar=$(find bundles -type f -name '*-portable.jar' | head -n1)
+          if [ -z "$jar" ]; then
+            echo "No portable jar was built; leaving launcher.properties alone." >&2
+            exit 0
+          fi
+          sha=$(sha256sum "$jar" | cut -d' ' -f1)
+          name=$(basename "$jar")
+          cat > launcher.properties <<EOF
+          # Read by rs.realm.launcher.Bootstrap in every installed launcher. Written by the release
+          # workflow — edit the release, not this file.
+          version=$version
+          url=https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$name
+          sha256=$sha
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add launcher.properties
+          if git diff --cached --quiet; then
+            echo "launcher.properties already current."
+          else
+            git commit -m "Launcher $version is live"
+            git push origin main
           fi

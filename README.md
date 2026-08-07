@@ -38,6 +38,24 @@ client is RuneLite with a bytecode-injection agent whose module needs are far wi
 trimmed here would show up as a client that refuses to start on players' machines while working
 perfectly on any developer box that has a system Java.
 
+### How players get a new launcher
+
+They mostly do not have to do anything. The installed app starts
+[`Bootstrap`](src/main/java/rs/realm/launcher/Bootstrap.java), not the launcher: it reads
+`launcher.properties`, downloads the newer UI jar into `~/.rs-realm/launcher/`, verifies its
+checksum and hands over. So a UI change reaches players the next time they open the launcher.
+
+The bundled jar cannot be replaced in place — the JVM holds it open before any of our code runs, and
+Windows will not overwrite an open file — which is why the running jar lives outside the install
+directory. The installer still ships a copy as a seed, so a first run with no network works, and
+every failure path falls back to the newest jar already on disk. A bad upload should cost an update,
+not the launcher, because a launcher that will not start cannot be fixed by uploading a better one.
+
+`launcher.properties` is written by the release workflow. Do not edit it by hand.
+
+A **reinstall** is only needed for things outside that jar: a Java version bump (it lives in
+`runtime/`), the icon or app name, or `Bootstrap` itself. All rare.
+
 ### Releasing
 
 `jpackage` cannot cross-compile — a Windows `.exe` has to be built on Windows and a macOS `.dmg` on

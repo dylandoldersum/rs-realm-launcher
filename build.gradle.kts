@@ -18,12 +18,42 @@ application {
     mainClass = "rs.realm.launcher.Launcher"
 }
 
-// A runnable jar with the Main-Class baked in (no deps → no shading needed).
+// The launcher's OWN version, which is not the client version in version.properties — that one is
+// data the launcher downloads, and it changes far more often.
+val launcherVersion: String = (findProperty("launcherVersion") as String?) ?: "1.0.0"
+
+// A runnable jar with the Main-Class baked in (no deps → no shading needed). This is both the
+// download players run directly and the payload the bootstrap fetches, which is why it carries its
+// version in the manifest: that is how the bootstrap tells the bundled seed from a newer one.
 tasks.jar {
     archiveBaseName = "rs-realm-launcher"
     archiveVersion = ""
     manifest {
-        attributes("Main-Class" to "rs.realm.launcher.Launcher")
+        attributes(
+            "Main-Class" to "rs.realm.launcher.Launcher",
+            "Implementation-Version" to launcherVersion,
+        )
+    }
+}
+
+/**
+ * The tiny jar that the installed app actually starts.
+ *
+ * Only [rs.realm.launcher.Bootstrap] goes in, because it is the one class that cannot update
+ * itself: changing it means shipping a new installer to everybody. Keeping it alone in here keeps
+ * its reasons to change down to almost none.
+ */
+val bootstrapJar by tasks.registering(Jar::class) {
+    archiveBaseName = "rs-realm-bootstrap"
+    archiveVersion = ""
+    from(sourceSets.main.get().output) {
+        include("rs/realm/launcher/Bootstrap*.class")
+    }
+    manifest {
+        attributes(
+            "Main-Class" to "rs.realm.launcher.Bootstrap",
+            "Implementation-Version" to launcherVersion,
+        )
     }
 }
 
@@ -35,10 +65,6 @@ tasks.jar {
 // macOS. The tasks below build whichever bundle fits the machine they run on, and the release
 // workflow runs them once per platform.
 //
-// The version a native installer carries is the LAUNCHER's own, which is not the client version in
-// version.properties — that one is data the launcher downloads, and it changes far more often.
-val launcherVersion: String = (findProperty("launcherVersion") as String?) ?: "1.0.0"
-
 val appName = "RS-Realm"
 val appVendor = "RS-Realm"
 val appIdentifier = "com.rsrealm.launcher"
@@ -63,7 +89,11 @@ val stagedJarDir = layout.buildDirectory.dir("jpackage/input")
 
 // Everything jpackage consumes has to sit in one directory, and that directory must contain
 // NOTHING else — its whole contents are copied into the bundle.
+//
+// Both jars go in. The bootstrap is what starts, and the launcher jar rides along as a seed so a
+// first run with no network still has a working launcher to fall back on.
 val stageForPackaging by tasks.registering(Copy::class) {
+    from(bootstrapJar)
     from(tasks.jar)
     into(stagedJarDir)
 }
@@ -112,8 +142,10 @@ fun packageArgs(type: String, destination: File): List<String> {
         "--app-version", launcherVersion,
         "--vendor", appVendor,
         "--input", stagedJarDir.get().asFile.absolutePath,
-        "--main-jar", "rs-realm-launcher.jar",
-        "--main-class", "rs.realm.launcher.Launcher",
+        // The bootstrap starts, not the launcher — see rs.realm.launcher.Bootstrap. The launcher
+        // jar in the same directory is its seed.
+        "--main-jar", "rs-realm-bootstrap.jar",
+        "--main-class", "rs.realm.launcher.Bootstrap",
         "--runtime-image", runtimeDir.get().asFile.absolutePath,
         "--icon", file("packaging/icons/$icon").absolutePath,
         "--dest", destination.absolutePath,
