@@ -87,9 +87,13 @@ public final class LauncherFrame extends JFrame {
     private final JPanel tabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 14));
     private final TabButton newsTab = new TabButton("News", () -> showTab(TAB_NEWS));
     private final TabButton adminTab = new TabButton("Admin", () -> showTab(TAB_ADMIN));
-    private final JLabel statusLabel = new JLabel(" ", SwingConstants.CENTER);
-    private final JLabel versionLabel = new JLabel(" ", SwingConstants.CENTER);
-    private final JLabel playerCountLabel = new JLabel(" ", SwingConstants.CENTER);
+    // Overlay labels: these three sit on the artwork, not on a panel. See Theme.OverlayLabel.
+    private final Theme.OverlayLabel statusLabel =
+            new Theme.OverlayLabel(" ", SwingConstants.CENTER);
+    private final Theme.OverlayLabel versionLabel =
+            new Theme.OverlayLabel(" ", SwingConstants.CENTER);
+    private final Theme.OverlayLabel playerCountLabel =
+            new Theme.OverlayLabel(" ", SwingConstants.CENTER);
     private final JLabel accountName = new JLabel();
     private final JLabel accountAvatar = new JLabel();
     private final ChevronDown accountChevron = new ChevronDown();
@@ -296,7 +300,6 @@ public final class LauncherFrame extends JFrame {
         side.add(progress);
         side.add(Box.createVerticalStrut(8));
 
-        statusLabel.setForeground(Theme.SUBTEXT);
         statusLabel.setFont(Theme.BODY);
         statusLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
         statusLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
@@ -312,7 +315,6 @@ public final class LauncherFrame extends JFrame {
         side.add(playerCountLabel);
         side.add(Box.createVerticalStrut(4));
 
-        versionLabel.setForeground(Theme.SUBTEXT);
         versionLabel.setFont(Theme.SMALL);
         versionLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
         versionLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 16));
@@ -328,8 +330,7 @@ public final class LauncherFrame extends JFrame {
         wrapper.setAlignmentX(Component.CENTER_ALIGNMENT);
         wrapper.setMaximumSize(new Dimension(Integer.MAX_VALUE, 74));
 
-        JLabel label = new JLabel("Character");
-        label.setForeground(Theme.SUBTEXT);
+        JLabel label = new Theme.OverlayLabel("Character", SwingConstants.LEFT);
         label.setFont(Theme.SMALL);
         label.setAlignmentX(Component.LEFT_ALIGNMENT);
         wrapper.add(label);

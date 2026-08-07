@@ -346,8 +346,8 @@ public final class NewsPanel extends JPanel {
 
         private static final Color GLOW = new Color(0xFF, 0xC8, 0x28);
 
-        /** How far the halo reaches. Beyond three rings it stops reading as light and gets muddy. */
-        private static final int GLOW_PASSES = 3;
+        /** How far the halo reaches. Two rings is a hint of light; three was a smudge. */
+        private static final int GLOW_PASSES = 2;
 
         /** The eight compass directions, as dx/dy pairs — one ring's worth of offsets. */
         private static final int[] RING = {-1, -1, 0, -1, 1, -1, -1, 0, 1, 0, -1, 1, 0, 1, 1, 1};
@@ -396,7 +396,7 @@ public final class NewsPanel extends JPanel {
             // and costs ~80 draws where this costs 24.
             for (int radius = GLOW_PASSES; radius >= 1; radius--) {
                 // Fainter the further out it reaches.
-                g2.setColor(new Color(GLOW.getRed(), GLOW.getGreen(), GLOW.getBlue(), 46 / radius));
+                g2.setColor(new Color(GLOW.getRed(), GLOW.getGreen(), GLOW.getBlue(), 30 / radius));
                 for (int corner = 0; corner < RING.length; corner += 2) {
                     g2.drawString(name, x + RING[corner] * radius, y + RING[corner + 1] * radius);
                 }
