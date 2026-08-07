@@ -165,6 +165,12 @@ public final class Bootstrap {
      * and quietly run the old launcher no matter what was downloaded.
      */
     private static void launch(Path jar, String[] args) throws Exception {
+        // Running out of our own jar: the launcher classes are already loaded and on the classpath,
+        // so opening a second loader over the same file would load every class twice for nothing.
+        if (jar.equals(selfJar())) {
+            Class.forName(MAIN_CLASS).getMethod("main", String[].class).invoke(null, (Object) args);
+            return;
+        }
         URL url = jar.toUri().toURL();
         URLClassLoader loader =
             new URLClassLoader("launcher", new URL[] {url}, ClassLoader.getPlatformClassLoader());
@@ -240,17 +246,38 @@ public final class Bootstrap {
         }
     }
 
-    /** The jar shipped in the bundle, which sits next to this one inside the app directory. */
-    private static Path seedJar() {
+    /** The jar this class was loaded from, or null if that cannot be worked out. */
+    private static Path selfJar() {
         try {
-            Path self =
-                Path.of(Bootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            Path dir = self.getParent();
-            return dir == null ? null : dir.resolve(SEED_JAR);
+            return Path.of(
+                Bootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI());
         } catch (Exception e) {
-            log("could not locate the bundled jar: " + e);
+            log("could not locate my own jar: " + e);
             return null;
         }
+    }
+
+    /**
+     * The launcher to fall back on when nothing newer has been downloaded.
+     *
+     * <p>Two shapes, because there are two ways to run this. In the installed app the bootstrap is
+     * its own small jar and the launcher sits beside it, so the seed is that sibling. Run as a
+     * single downloadable jar there is no sibling — the launcher classes are in HERE, and the seed
+     * is this file.
+     */
+    private static Path seedJar() {
+        Path self = selfJar();
+        if (self == null) {
+            return null;
+        }
+        Path dir = self.getParent();
+        if (dir != null) {
+            Path sibling = dir.resolve(SEED_JAR);
+            if (Files.isRegularFile(sibling) && !sibling.equals(self)) {
+                return sibling;
+            }
+        }
+        return self;
     }
 
     /** Reads `Implementation-Version` out of a jar manifest. */

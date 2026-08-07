@@ -22,15 +22,21 @@ application {
 // data the launcher downloads, and it changes far more often.
 val launcherVersion: String = (findProperty("launcherVersion") as String?) ?: "1.0.0"
 
-// A runnable jar with the Main-Class baked in (no deps → no shading needed). This is both the
-// download players run directly and the payload the bootstrap fetches, which is why it carries its
-// version in the manifest: that is how the bootstrap tells the bundled seed from a newer one.
+// The whole launcher in one jar (no deps → no shading needed). It plays two parts: the payload the
+// bootstrap downloads, and the jar players can run directly.
+//
+// It starts at Bootstrap rather than Launcher so that running it directly self-updates too. It
+// contains both, so Bootstrap finds no sibling to seed from and falls back to the launcher classes
+// in here. Without this the direct download would be the one way of running RS-Realm that never
+// updates itself, which is a trap rather than a feature.
+//
+// The version in the manifest is how the bootstrap tells a seed from something newer.
 tasks.jar {
     archiveBaseName = "rs-realm-launcher"
     archiveVersion = ""
     manifest {
         attributes(
-            "Main-Class" to "rs.realm.launcher.Launcher",
+            "Main-Class" to "rs.realm.launcher.Bootstrap",
             "Implementation-Version" to launcherVersion,
         )
     }

@@ -53,6 +53,11 @@ not the launcher, because a launcher that will not start cannot be fixed by uplo
 
 `launcher.properties` is written by the release workflow. Do not edit it by hand.
 
+The downloadable `.jar` behaves the same way. It starts at `Bootstrap` too, finds no sibling to seed
+from, and falls back to the launcher classes inside itself. One file that is both the payload the
+installed app downloads and a launcher you can run directly — otherwise the direct download would be
+the one way of running RS-Realm that never updates, which is a trap rather than a feature.
+
 A **reinstall** is only needed for things outside that jar: a Java version bump (it lives in
 `runtime/`), the icon or app name, or `Bootstrap` itself. All rare.
 
