@@ -245,8 +245,13 @@ public final class LauncherFrame extends JFrame {
                 BorderFactory.createMatteBorder(0, 1, 0, 0, Theme.BORDER),
                 BorderFactory.createEmptyBorder(24, 26, 24, 26)));
 
-        // No logo here any more — it moved to the title bar. Repeating it would cost the artwork
-        // the top third of the column for no new information.
+        // The wordmark stays here as well as the crest in the title bar. They are different marks
+        // doing different jobs: the crest identifies the window at 30 pixels, this one is the brand
+        // at the top of the column the player actually looks at.
+        JComponent logo = buildLogo();
+        logo.setAlignmentX(Component.CENTER_ALIGNMENT);
+        side.add(logo);
+        side.add(Box.createVerticalStrut(22));
 
         actionButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 48));
         actionButton.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -1123,12 +1128,35 @@ public final class LauncherFrame extends JFrame {
         return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
     }
 
+    /**
+     * The taskbar and window-corner icon.
+     *
+     * <p>The square crest, not the wordmark. Windows renders this at 16 and 32 pixels, and a
+     * 2730x1536 banner squeezed into a square that size is an unreadable dark smudge — which is
+     * exactly what it looked like.
+     *
+     * <p>Several sizes are offered rather than one, so the platform picks the nearest and scales
+     * less; downscaling 96 pixels to 16 in one jump loses the shape entirely.
+     */
     private void loadWindowIcon() {
         try {
-            var url = getClass().getResource("/logo.png");
-            if (url != null) {
-                setIconImage(ImageIO.read(url));
+            var url = getClass().getResource("/icon.png");
+            if (url == null) {
+                return;
             }
+            java.awt.image.BufferedImage full = ImageIO.read(url);
+            java.util.List<Image> sizes = new java.util.ArrayList<>();
+            for (int size : new int[] {16, 24, 32, 48, 64, 96}) {
+                java.awt.image.BufferedImage scaled =
+                        new java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = scaled.createGraphics();
+                g.setRenderingHint(
+                        RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g.drawImage(full, 0, 0, size, size, null);
+                g.dispose();
+                sizes.add(scaled);
+            }
+            setIconImages(sizes);
         } catch (Exception ignored) {
             // no icon — fine
         }
