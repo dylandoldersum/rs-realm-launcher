@@ -38,10 +38,18 @@ import javax.swing.plaf.basic.BasicScrollBarUI;
  */
 public final class NewsPanel extends JPanel {
 
-    private static final int IMAGE_HEIGHT = 150;
+    /**
+     * Both image heights are sized so the whole feed fits the window without scrolling.
+     *
+     * <p>Measured rather than guessed: at the default 1180x700 the viewport is 570 pixels and the
+     * old 240/150 pair needed 580, which is why a scrollbar appeared for the sake of ten pixels.
+     * They shrink together so the newest post keeps its head above the other two — dropping the
+     * hero alone until it fit would have left it barely taller than the cards below it.
+     */
+    private static final int IMAGE_HEIGHT = 120;
 
     /** The newest post gets the full width and a taller image — it is the one people came for. */
-    private static final int HERO_IMAGE_HEIGHT = 240;
+    private static final int HERO_IMAGE_HEIGHT = 180;
 
     private final JPanel column = new JPanel();
     private final JPanel grid = new JPanel(new GridLayout(0, 2, 14, 14));
