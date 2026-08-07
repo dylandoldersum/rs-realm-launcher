@@ -360,8 +360,26 @@ public final class LauncherFrame extends JFrame {
         private static final float FADE_TOP = 0.05f;
         private static final float FADE_BOTTOM = 0.62f;
 
-        /** Full strength at the bottom edge. Lower this if text over the art becomes hard to read. */
-        private static final float MAX_ALPHA = 1.0f;
+        /** How strong the art gets at its strongest. */
+        private static final float MAX_ALPHA = 0.8f;
+
+        /**
+         * A darkened strip along the bottom edge, tall enough to cover the player count and the
+         * version line.
+         *
+         * <p>Those two labels sit over the brightest part of the picture — sunlit snow — and pale
+         * text on it does not read at any alpha worth using. Turning the whole image down far
+         * enough to fix that leaves nothing worth looking at, so the darkening is confined to the
+         * strip where the text actually is.
+         */
+        private static final int SCRIM_HEIGHT = 120;
+
+        /**
+         * All the way to the panel colour at the very edge, so the version line is exactly as
+         * legible as it was before there was any artwork. Stopping short of 1 leaves a haze of
+         * snow behind the smallest, palest text on the screen.
+         */
+        private static final float SCRIM_STRENGTH = 1.0f;
 
         private final java.awt.image.BufferedImage source;
         private java.awt.image.BufferedImage cached;
@@ -423,6 +441,25 @@ public final class LauncherFrame extends JFrame {
                     new float[] {0f, 1f},
                     new Color[] {new Color(0f, 0f, 0f, 0f), new Color(0f, 0f, 0f, MAX_ALPHA)}));
             g.fillRect(0, 0, w, h);
+
+            // Back to normal painting to lay the scrim ON TOP of the art, in the panel's own colour
+            // so it reads as the background rising rather than as a grey bar.
+            g.setComposite(AlphaComposite.SrcOver);
+            Color base = getBackground() == null ? Color.BLACK : getBackground();
+            int scrimTop = Math.max(0, h - SCRIM_HEIGHT);
+            g.setPaint(new LinearGradientPaint(
+                    new Point2D.Float(0, scrimTop),
+                    new Point2D.Float(0, h),
+                    new float[] {0f, 1f},
+                    new Color[] {
+                        new Color(base.getRed(), base.getGreen(), base.getBlue(), 0),
+                        new Color(
+                                base.getRed(),
+                                base.getGreen(),
+                                base.getBlue(),
+                                Math.round(255 * SCRIM_STRENGTH))
+                    }));
+            g.fillRect(0, scrimTop, w, h - scrimTop);
             g.dispose();
             return out;
         }
