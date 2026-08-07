@@ -234,7 +234,9 @@ public final class Backend {
     public AdminOverview adminOverview() throws IOException {
         Map<String, Object> body;
         try {
-            body = send("GET", "/admin/overview", null);
+            // Under /auth/ because that is a prefix the reverse proxy actually forwards; an
+            // /admin/ path 404s before it ever reaches the game server.
+            body = send("GET", "/auth/admin/overview", null);
         } catch (NotAllowedException e) {
             return null;
         }
