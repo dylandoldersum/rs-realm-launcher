@@ -6,6 +6,7 @@ import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
@@ -59,6 +60,22 @@ public final class NewsPanel extends JPanel {
     /** One hero plus a 2x2 grid under it. */
     private static final int PER_PAGE = 5;
 
+    /**
+     * How tall the fade at the bottom of the feed is.
+     *
+     * Enough to read as a soft edge rather than a visible band, short enough that it never washes
+     * out a whole card's text.
+     */
+    private static final int FADE_HEIGHT = 44;
+
+    /**
+     * The scrolling area, kept as a field so {@link #paintChildren} knows where to draw the fade.
+     *
+     * A scroll pane clips its contents dead flat at its bottom edge, so a card carrying on past it
+     * looks sliced in half rather than like there is more below.
+     */
+    private JScrollPane scroll;
+
     private final JPanel column = new JPanel();
     private final JPanel grid = new JPanel(new GridLayout(0, 2, 14, 14));
     private final JLabel emptyLabel = new JLabel("No updates yet.");
@@ -107,7 +124,7 @@ public final class NewsPanel extends JPanel {
         holder.setOpaque(false);
         holder.add(column, BorderLayout.NORTH);
 
-        JScrollPane scroll =
+        scroll =
                 new JScrollPane(
                         holder,
                         ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
@@ -115,6 +132,10 @@ public final class NewsPanel extends JPanel {
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.getViewport().setBackground(Theme.BACKGROUND);
         scroll.getVerticalScrollBar().setUnitIncrement(18);
+        // The fade has to disappear on the last card, so it has to be redrawn as the bar moves.
+        // Repainting the whole panel rather than the strip: the fade sits over the scroll pane's
+        // own children, so a narrower repaint leaves the previous frame's gradient behind.
+        scroll.getVerticalScrollBar().getModel().addChangeListener(e -> repaint());
         styleScrollBar(scroll.getVerticalScrollBar());
         add(scroll, BorderLayout.CENTER);
 
@@ -128,6 +149,46 @@ public final class NewsPanel extends JPanel {
         // Only appears once there is a second page — a pager over a single page is furniture.
         footer.setVisible(false);
         add(footer, BorderLayout.SOUTH);
+    }
+
+    /**
+     * Fade the feed out at its bottom edge instead of cutting it off.
+     *
+     * Drawn after the children rather than by the scroll pane itself, because the thing that needs
+     * covering is the viewport's own clip - anything painted inside it gets clipped by the same
+     * edge we are trying to soften.
+     *
+     * Only while there is actually more below. A fade over the last card would dim content that is
+     * already fully visible, which says "there is more" when there is not.
+     */
+    @Override
+    protected void paintChildren(Graphics g) {
+        super.paintChildren(g);
+        if (scroll == null) {
+            return;
+        }
+        JScrollBar bar = scroll.getVerticalScrollBar();
+        boolean moreBelow = bar.isVisible() && bar.getValue() + bar.getVisibleAmount() < bar.getMaximum();
+        if (!moreBelow) {
+            return;
+        }
+        Rectangle area = scroll.getBounds();
+        int top = area.y + area.height - FADE_HEIGHT;
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setPaint(
+                new GradientPaint(
+                        0,
+                        top,
+                        new Color(
+                                Theme.BACKGROUND.getRed(),
+                                Theme.BACKGROUND.getGreen(),
+                                Theme.BACKGROUND.getBlue(),
+                                0),
+                        0,
+                        area.y + area.height,
+                        Theme.BACKGROUND));
+        g2.fillRect(area.x, top, area.width, FADE_HEIGHT);
+        g2.dispose();
     }
 
     /** Shows a "still loading" line; replaced by {@link #setNews} or {@link #setError}. */
