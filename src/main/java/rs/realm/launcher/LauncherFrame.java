@@ -86,6 +86,9 @@ public final class LauncherFrame extends JFrame {
     private String currentTab = TAB_HOME;
 
     private final NewsPanel newsPanel = new NewsPanel();
+    /** The art beside the page: set on the admin website (loadArt), the built-in one until then. */
+    private final ArtPanel sideArt = new ArtPanel("/sidebar-art.jpg");
+    private String sideArtUrl;
     private final CardLayout centerCards = new CardLayout();
     private final JPanel center = new JPanel(centerCards);
     private final JPanel tabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 14));
@@ -280,7 +283,7 @@ public final class LauncherFrame extends JFrame {
     private JComponent buildSidePanel() {
         // The artwork lives behind the controls rather than beside them: this column is 340px wide
         // and every pixel spent on a picture is one the Play button does not get.
-        JPanel side = new ArtPanel("/sidebar-art.jpg");
+        JPanel side = sideArt;
         side.setBackground(Theme.PANEL);
         side.setLayout(new BoxLayout(side, BoxLayout.Y_AXIS));
         side.setPreferredSize(new Dimension(340, 0));
@@ -426,7 +429,7 @@ public final class LauncherFrame extends JFrame {
          */
         private static final float SCRIM_STRENGTH = 1.0f;
 
-        private final java.awt.image.BufferedImage source;
+        private java.awt.image.BufferedImage source;
         private java.awt.image.BufferedImage cached;
         private int cachedW = -1;
         private int cachedH = -1;
@@ -442,6 +445,16 @@ public final class LauncherFrame extends JFrame {
                 // A missing backdrop is a cosmetic loss, not a reason to fail to start.
             }
             this.source = img;
+        }
+
+        /** Shows [picture] instead (the admin website's), the cached render redone. */
+        void setSource(java.awt.image.BufferedImage picture) {
+            if (picture == null) {
+                return;
+            }
+            this.source = picture;
+            cached = null;
+            repaint();
         }
 
         @Override
@@ -991,9 +1004,39 @@ public final class LauncherFrame extends JFrame {
             }
         }.execute();
         loadFeatured();
+        loadArt();
     }
 
     /** The Home tab's banner: the featured update's picture (its built-in one when there is none). */
+    /** The sidebar art set on the admin website, if any (the built-in one stays otherwise). */
+    private void loadArt() {
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() {
+                try {
+                    return backend.sidebarArt();
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+
+            @Override
+            protected void done() {
+                String url;
+                try {
+                    url = get();
+                } catch (Exception e) {
+                    return;
+                }
+                if (url == null || url.equals(sideArtUrl)) {
+                    return;
+                }
+                sideArtUrl = url;
+                Avatar.load(url, sideArt::setSource);
+            }
+        }.execute();
+    }
+
     private void loadFeatured() {
         new SwingWorker<Backend.News, Void>() {
             private boolean failed;

@@ -137,6 +137,12 @@ public final class Backend {
         return out;
     }
 
+    /** The sidebar art's url, when one is set on the admin website (else null: the built-in one). */
+    public String sidebarArt() throws IOException {
+        Map<String, Object> body = send("GET", "/launcher/art", null);
+        return Json.str(body, "sidebar", null);
+    }
+
     /** The featured update (the Home tab's banner, set on the admin website), or null when there is none. */
     public News featured() throws IOException {
         Map<String, Object> body = send("GET", "/launcher/featured", null);
