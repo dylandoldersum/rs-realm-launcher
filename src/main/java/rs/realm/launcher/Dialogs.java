@@ -196,7 +196,7 @@ public final class Dialogs {
     }
 
     /** A flat rounded button; filled when it is the default action, outlined otherwise. */
-    private static final class FlatButton extends JComponent {
+    static final class FlatButton extends JComponent {
         private final String label;
         private final boolean filled;
         private final boolean destructive;

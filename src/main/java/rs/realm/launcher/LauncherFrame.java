@@ -82,16 +82,18 @@ public final class LauncherFrame extends JFrame {
     /** The running game client, or null. Kept so an update is never offered on top of a live one. */
     private Process runningClient;
 
-    /** Which card the middle of the window is showing, so the admin poll can stay off when unseen. */
-    private String currentTab = TAB_NEWS;
+    /** Which card the middle of the window is showing. */
+    private String currentTab = TAB_HOME;
 
     private final NewsPanel newsPanel = new NewsPanel();
-    private final AdminPanel adminPanel = new AdminPanel(new AdminActions());
     private final CardLayout centerCards = new CardLayout();
     private final JPanel center = new JPanel(centerCards);
     private final JPanel tabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 14));
+    private final HomePanel homePanel = new HomePanel(() -> showTab(TAB_NEWS));
+    private final StorePanel storePanel = new StorePanel(backend);
+    private final TabButton homeTab = new TabButton("Home", () -> showTab(TAB_HOME));
+    private final TabButton storeTab = new TabButton("Store", () -> showTab(TAB_STORE));
     private final TabButton newsTab = new TabButton("News", () -> showTab(TAB_NEWS));
-    private final TabButton adminTab = new TabButton("Admin", () -> showTab(TAB_ADMIN));
     // Overlay labels: these three sit on the artwork, not on a panel. See Theme.OverlayLabel.
     private final Theme.OverlayLabel statusLabel =
             new Theme.OverlayLabel(" ", SwingConstants.CENTER);
@@ -122,19 +124,21 @@ public final class LauncherFrame extends JFrame {
         root.setBorder(BorderFactory.createLineBorder(Theme.BORDER, 1));
         root.add(buildTitleBar(), BorderLayout.NORTH);
         center.setOpaque(false);
+        center.add(homePanel, TAB_HOME);
+        center.add(storePanel, TAB_STORE);
         center.add(newsPanel, TAB_NEWS);
-        center.add(adminPanel, TAB_ADMIN);
         root.add(center, BorderLayout.CENTER);
-        showTab(TAB_NEWS);
+        showTab(TAB_HOME);
         root.add(buildSidePanel(), BorderLayout.EAST);
         setContentPane(root);
 
         actionButton.addActionListener(e -> onAction());
+        // Store pictures this player has not drawn yet come from the server.
+        Renders.useBackend(backend);
 
         pollNews();
         pollPlayerCount();
         pollClientUpdates();
-        pollAdmin();
         restoreSession();
     }
 
@@ -197,12 +201,11 @@ public final class LauncherFrame extends JFrame {
         JComponent title = buildTitleMark();
         bar.add(title, BorderLayout.WEST);
 
-        // Hidden until there is more than one tab to switch between. A lone "News" button that does
-        // nothing is worse than no button.
+        // Home, Store and News. Running the server (store, news, players) is the admin website's.
         tabs.setOpaque(false);
-        tabs.setVisible(false);
+        tabs.add(homeTab);
+        tabs.add(storeTab);
         tabs.add(newsTab);
-        tabs.add(adminTab);
         bar.add(tabs, BorderLayout.CENTER);
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 12));
@@ -444,12 +447,12 @@ public final class LauncherFrame extends JFrame {
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
-            if (source == null) {
-                return;
-            }
             int w = getWidth();
             int h = getHeight();
             if (w <= 0 || h <= 0) {
+                return;
+            }
+            if (source == null) {
                 return;
             }
             if (cached == null || cachedW != w || cachedH != h) {
@@ -718,7 +721,6 @@ public final class LauncherFrame extends JFrame {
                 setProfiles(List.of());
                 characterWrapper.setVisible(false);
                 statusLabel.setText(" ");
-                setAdminAvailable(null, List.of());
                 applyState(Phase.SIGNED_OUT);
             }
         }.execute();
@@ -729,9 +731,6 @@ public final class LauncherFrame extends JFrame {
         Avatar.loadCircular(accountAvatar, signedIn.avatarUrl(), 32, signedIn.username());
         accountChip.setVisible(true);
         accountChip.revalidate();
-        // Both a fresh sign-in and a restored session land here, so this is the one place that has
-        // to ask.
-        refreshAdmin();
     }
 
     // -------------------------------------------------------------------------------- profiles ----
@@ -794,8 +793,14 @@ public final class LauncherFrame extends JFrame {
 
     private void setProfiles(List<Backend.Profile> profiles) {
         profilesInBox = List.copyOf(profiles);
+        homePanel.setProfiles(profiles);
+        storePanel.setProfiles(profiles);
+        if (profiles.isEmpty()) {
+            storePanel.reset();
+        }
         characterBox.setItems(profiles);
-        characterWrapper.setVisible(true);
+        // Characters are chosen and created in the in-game lobby now, not here.
+        characterWrapper.setVisible(false);
 
         String last = session.lastProfile();
         if (last != null) {
@@ -985,297 +990,49 @@ public final class LauncherFrame extends JFrame {
                 newsPanel.setNews(items);
             }
         }.execute();
+        loadFeatured();
     }
 
-    // ------------------------------------------------------------------------------------ admin ----
+    /** The Home tab's banner: the featured update's picture (its built-in one when there is none). */
+    private void loadFeatured() {
+        new SwingWorker<Backend.News, Void>() {
+            private boolean failed;
 
-    /**
-     * Ask the server whether this account is an admin, and add the tab if it says yes.
-     *
-     * The question is asked by fetching the data: there is no separate "am I an admin" call to get
-     * out of step with the real check. A 403 comes back as null and the tab simply never appears,
-     * which is also what happens for a network failure — a launcher that showed an empty Admin tab
-     * because the request timed out would be a worse lie than showing nothing.
-     *
-     * Called after sign-in, so a signed-out launcher never asks.
-     */
-    private void refreshAdmin() {
-        new SwingWorker<Object[], Void>() {
             @Override
-            protected Object[] doInBackground() {
+            protected Backend.News doInBackground() {
                 try {
-                    Backend.AdminOverview overview = backend.adminOverview();
-                    if (overview == null) {
-                        return null;
-                    }
-                    // The online list only matters alongside the overview, and a failure to read it
-                    // must not cost the whole tab — an empty table is still a usable page.
-                    List<Backend.OnlinePlayer> online;
-                    try {
-                        online = backend.adminOnlinePlayers();
-                    } catch (Exception e) {
-                        online = List.of();
-                    }
-                    return new Object[] {overview, online};
+                    return backend.featured();
                 } catch (Exception e) {
+                    failed = true;
                     return null;
                 }
             }
 
             @Override
-            @SuppressWarnings("unchecked")
             protected void done() {
-                Object[] result = null;
+                Backend.News featured;
                 try {
-                    result = get();
+                    featured = get();
                 } catch (Exception e) {
-                    result = null;
-                }
-                if (result == null) {
-                    setAdminAvailable(null, List.of());
                     return;
                 }
-                setAdminAvailable(
-                        (Backend.AdminOverview) result[0], (List<Backend.OnlinePlayer>) result[1]);
+                // A failed poll keeps what is shown; only the server saying "none" puts the
+                // built-in picture back.
+                if (!failed) {
+                    homePanel.setFeatured(featured);
+                }
             }
         }.execute();
-    }
-
-    private void setAdminAvailable(
-            Backend.AdminOverview overview, List<Backend.OnlinePlayer> online) {
-        boolean allowed = overview != null;
-        tabs.setVisible(allowed);
-        adminTab.setVisible(allowed);
-        if (allowed) {
-            adminPanel.setData(overview, online);
-        } else {
-            // Signing out of an admin account must not leave the tab behind for whoever signs in
-            // next on the same machine.
-            showTab(TAB_NEWS);
-        }
-        tabs.revalidate();
-        tabs.repaint();
-    }
-
-    /**
-     * What the Admin tab's buttons actually do.
-     *
-     * Every one of these ends in a confirmation before anything is sent. These hand out items and
-     * ranks to live players, and the difference between "give 100" and "give 100000" is one
-     * keystroke — a summary you have to agree with is the cheapest guard against a slip that cannot
-     * be taken back.
-     */
-    private final class AdminActions implements AdminPanel.Actions {
-
-        @Override
-        public void giveItem(String targetOrEveryone) {
-            String who = targetOrEveryone == null ? "every player online" : targetOrEveryone;
-
-            String objText = ask("Item id to give " + who + ":", "");
-            if (objText == null) {
-                return;
-            }
-            Integer objId = parsePositive(objText);
-            if (objId == null) {
-                warn("\"" + objText + "\" is not an item id.");
-                return;
-            }
-
-            String countText = ask("How many?", "1");
-            if (countText == null) {
-                return;
-            }
-            Integer count = parsePositive(countText);
-            if (count == null) {
-                warn("\"" + countText + "\" is not a quantity.");
-                return;
-            }
-
-            boolean noted =
-                    JOptionPane.showConfirmDialog(
-                                    LauncherFrame.this,
-                                    "Give it noted, where the item has a noted form?",
-                                    "Noted?",
-                                    JOptionPane.YES_NO_OPTION)
-                            == JOptionPane.YES_OPTION;
-
-            if (!confirm("Give " + count + " x item " + objId + " to " + who + "?")) {
-                return;
-            }
-            Map<String, String> fields = new LinkedHashMap<>();
-            fields.put("action", "give_item");
-            fields.put("obj", String.valueOf(objId));
-            fields.put("count", String.valueOf(count));
-            fields.put("noted", String.valueOf(noted));
-            if (targetOrEveryone != null) {
-                fields.put("target", targetOrEveryone);
-            }
-            send(fields, "Item queued for " + who + ".");
-        }
-
-        @Override
-        public void sendHome(String player) {
-            if (!confirm("Send " + player + " home?")) {
-                return;
-            }
-            Map<String, String> fields = new LinkedHashMap<>();
-            fields.put("action", "send_home");
-            fields.put("target", player);
-            send(fields, player + " is on their way home.");
-        }
-
-        @Override
-        public void setDonator(String player) {
-            // The ranks, with the cumulative total each one needs. Setting the total rather than
-            // adding to it means granting the same rank twice leaves them where they are.
-            String[] ranks = {"None", "Donator", "Super Donator", "Extreme Donator", "Rich kid"};
-            int[] cents = {0, 1, 2_500, 10_000, 50_000};
-            Object choice =
-                    JOptionPane.showInputDialog(
-                            LauncherFrame.this,
-                            "Donator rank for " + player + ":",
-                            "Donator status",
-                            JOptionPane.PLAIN_MESSAGE,
-                            null,
-                            ranks,
-                            ranks[1]);
-            if (choice == null) {
-                return;
-            }
-            int index = java.util.Arrays.asList(ranks).indexOf(choice.toString());
-            if (index < 0) {
-                return;
-            }
-            if (!confirm("Set " + player + " to \"" + ranks[index] + "\"?")) {
-                return;
-            }
-            Map<String, String> fields = new LinkedHashMap<>();
-            fields.put("action", "set_donator");
-            fields.put("target", player);
-            fields.put("cents", String.valueOf(cents[index]));
-            send(fields, player + " is now " + ranks[index] + ".");
-        }
-
-        @Override
-        public void broadcast() {
-            String text = ask("Broadcast to everyone online:", "");
-            if (text == null || text.isBlank()) {
-                return;
-            }
-            if (!confirm("Send to everyone online:\n\n" + text)) {
-                return;
-            }
-            Map<String, String> fields = new LinkedHashMap<>();
-            fields.put("action", "broadcast");
-            fields.put("text", text);
-            send(fields, "Broadcast sent.");
-        }
-
-        @Override
-        public void refresh() {
-            refreshAdmin();
-        }
-
-        /**
-         * Post the action, then say what happened.
-         *
-         * The wording is "queued", not "done": the server applies these on the game loop a tick
-         * later, so a reply here only means it was accepted. The table is refreshed afterwards so
-         * anything visible — a donator rank — shows its new state.
-         */
-        private void send(Map<String, String> fields, String success) {
-            new SwingWorker<String, Void>() {
-                @Override
-                protected String doInBackground() {
-                    try {
-                        backend.adminAction(fields);
-                        return null;
-                    } catch (Exception e) {
-                        return e.getMessage() == null ? "The server refused it." : e.getMessage();
-                    }
-                }
-
-                @Override
-                protected void done() {
-                    String failure;
-                    try {
-                        failure = get();
-                    } catch (Exception e) {
-                        failure = e.getMessage();
-                    }
-                    if (failure != null) {
-                        warn(failure);
-                        return;
-                    }
-                    statusLabel.setText(success);
-                    refreshAdmin();
-                }
-            }.execute();
-        }
-
-        private String ask(String question, String initial) {
-            Object answer =
-                    JOptionPane.showInputDialog(
-                            LauncherFrame.this,
-                            question,
-                            "Admin",
-                            JOptionPane.PLAIN_MESSAGE,
-                            null,
-                            null,
-                            initial);
-            return answer == null ? null : answer.toString().trim();
-        }
-
-        private boolean confirm(String summary) {
-            return JOptionPane.showConfirmDialog(
-                            LauncherFrame.this, summary, "Confirm", JOptionPane.OK_CANCEL_OPTION)
-                    == JOptionPane.OK_OPTION;
-        }
-
-        private void warn(String text) {
-            JOptionPane.showMessageDialog(
-                    LauncherFrame.this, text, "Admin", JOptionPane.WARNING_MESSAGE);
-        }
-
-        private Integer parsePositive(String text) {
-            try {
-                int value = Integer.parseInt(text.trim());
-                return value > 0 ? value : null;
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-    }
-
-    /**
-     * Keep the online table current while somebody is looking at it.
-     *
-     * Only while the Admin tab is actually showing: this is an authenticated call that walks the
-     * database, and polling it from every launcher sitting on the News tab would be a cost with no
-     * reader. Ten seconds because the table's whole value is who is online *now* — a minute-old
-     * player list is a list of people you may no longer be able to act on.
-     */
-    private void pollAdmin() {
-        Timer timer =
-                new Timer(
-                        ADMIN_POLL_MILLIS,
-                        e -> {
-                            if (TAB_ADMIN.equals(currentTab) && adminTab.isVisible()) {
-                                refreshAdmin();
-                            }
-                        });
-        timer.setRepeats(true);
-        timer.start();
     }
 
     private void showTab(String name) {
         currentTab = name;
         centerCards.show(center, name);
+        homeTab.setSelected(TAB_HOME.equals(name));
+        storeTab.setSelected(TAB_STORE.equals(name));
         newsTab.setSelected(TAB_NEWS.equals(name));
-        adminTab.setSelected(TAB_ADMIN.equals(name));
-        // Reopening Admin should show current numbers, not whatever they were at sign-in.
-        if (TAB_ADMIN.equals(name)) {
-            refreshAdmin();
+        if (TAB_STORE.equals(name)) {
+            storePanel.load();
         }
     }
 
@@ -1509,27 +1266,27 @@ public final class LauncherFrame extends JFrame {
     }
 
     /**
-     * Play: mint a launch token for the chosen character, then start the client with it.
+     * Play: mint a launch token for this Discord account's character lobby, then start the client
+     * with it. Characters are chosen and created in the lobby, in game.
      *
      * The token is fetched at the last possible moment because it is only valid for thirty seconds.
-     * Minting it when the window opened, or when the dropdown changed, would hand the client a token
-     * that had already expired while the player read the news.
+     * Minting it when the window opened would hand the client a token that had already expired while
+     * the player read the news.
      */
     private void play() {
-        Backend.Profile profile = selectedProfile();
-        if (profile == null) {
-            Dialogs.message(this, "No character", "Create one first with the + button.");
-            return;
-        }
+        String name =
+                account != null && account.username() != null && !account.username().isBlank()
+                        ? account.username()
+                        : Config.BRAND;
         applyState(Phase.WORKING);
         statusLabel.setText("Starting...");
-        new SwingWorker<String, Void>() {
+        new SwingWorker<Backend.LobbyToken, Void>() {
             private String failure;
 
             @Override
-            protected String doInBackground() {
+            protected Backend.LobbyToken doInBackground() {
                 try {
-                    return backend.launchToken(profile);
+                    return backend.lobbyToken();
                 } catch (Exception e) {
                     failure = e.getMessage();
                     return null;
@@ -1538,7 +1295,7 @@ public final class LauncherFrame extends JFrame {
 
             @Override
             protected void done() {
-                String token = null;
+                Backend.LobbyToken token = null;
                 try {
                     token = get();
                 } catch (Exception e) {
@@ -1550,12 +1307,11 @@ public final class LauncherFrame extends JFrame {
                     return;
                 }
                 try {
-                    Process client =
-                            GameClient.play(token, profile.displayName(), profile.accountId());
+                    Process client = GameClient.play(token.token(), name, token.accountId());
                     // The launcher stays open. Closing it would be the last word on a client that
                     // has not finished starting — and it is also where you switch character, so
                     // shutting it down means restarting it to play a second profile.
-                    statusLabel.setText("Started " + profile.displayName() + ".");
+                    statusLabel.setText("Started.");
                     watchForExit(client);
                     Timer ready = new Timer(2500, e -> applyState(Phase.PLAY));
                     ready.setRepeats(false);
@@ -1675,13 +1431,10 @@ public final class LauncherFrame extends JFrame {
      */
     private static final int UPDATE_POLL_MILLIS = 5 * 60_000;
 
-    /** Ten seconds — only ticks while the Admin tab is on screen. See {@link #pollAdmin()}. */
-    private static final int ADMIN_POLL_MILLIS = 10_000;
-
     /** Card names for the middle of the window. */
+    private static final String TAB_HOME = "home";
+    private static final String TAB_STORE = "store";
     private static final String TAB_NEWS = "news";
-
-    private static final String TAB_ADMIN = "admin";
 
     /** Discord's brand blurple, so the sign-in button reads as "this opens Discord". */
     private static final Color DISCORD = new Color(0x58, 0x65, 0xF2);

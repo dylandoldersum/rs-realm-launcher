@@ -553,7 +553,7 @@ public final class NewsPanel extends JPanel {
      * delegate rather than setting colours: the buttons are components the delegate creates, so the
      * only way to be rid of them is to hand it zero-sized ones.
      */
-    private static void styleScrollBar(JScrollBar bar) {
+    static void styleScrollBar(JScrollBar bar) {
         bar.setUI(
                 new BasicScrollBarUI() {
                     @Override
