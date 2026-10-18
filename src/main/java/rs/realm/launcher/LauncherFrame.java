@@ -219,7 +219,7 @@ public final class LauncherFrame extends JFrame {
         }
         if (next == Server.ONLINE && wasDown) {
             applyState(phase);
-            statusLabel.setText("The server is back online. Have fun!");
+            statusLabel.setText("Server is back online!");
         } else if (next != Server.ONLINE) {
             applyState(phase);
         }
@@ -233,12 +233,12 @@ public final class LauncherFrame extends JFrame {
         switch (server) {
             case RESTARTING -> {
                 statusLabel.setText(rebootSeconds > 0
-                        ? "The server restarts for an update in " + rebootSeconds + "s..."
-                        : "The server is restarting for an update...");
+                        ? "Restarting for an update in " + rebootSeconds + "s"
+                        : "Restarting for an update...");
                 actionButton.setText("Updating");
             }
             case DOWN -> {
-                statusLabel.setText("The server is updating. It's back in a minute or two.");
+                statusLabel.setText("Server updating, back shortly");
                 actionButton.setText("Server offline");
             }
             default -> {
