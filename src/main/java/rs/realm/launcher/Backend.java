@@ -119,8 +119,23 @@ public final class Backend {
 
     /** How many players are online right now. */
     public int onlinePlayers() throws IOException {
-        return Json.number(send("GET", "/launcher/status", null), "players", 0);
+        return status().players();
     }
+
+    /**
+     * The game server's state: how many play, and whether it restarts for an update soon
+     * ([ServerStatus#rebootSeconds] -1: no). Throws when the server can't be reached (it is down,
+     * as it is for a minute or two while an update installs).
+     */
+    public ServerStatus status() throws IOException {
+        Map<String, Object> body = send("GET", "/launcher/status", null);
+        if (!body.containsKey("players")) {
+            throw new IOException("The server is not answering.");
+        }
+        return new ServerStatus(Json.number(body, "players", 0), Json.bool(body, "updating", false) ? 0 : Json.number(body, "reboot_seconds", -1));
+    }
+
+    public record ServerStatus(int players, int rebootSeconds) {}
 
     public List<News> news() throws IOException {
         Map<String, Object> body = send("GET", "/launcher/news", null);

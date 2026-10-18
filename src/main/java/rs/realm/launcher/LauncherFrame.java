@@ -74,6 +74,13 @@ public final class LauncherFrame extends JFrame {
 
     private Manifest remote;
     private Phase phase = Phase.SIGNED_OUT;
+
+    /** The game server, as last polled: up, restarting for an update soon, or down (an update installing). */
+    private enum Server { UNKNOWN, ONLINE, RESTARTING, DOWN }
+
+    private Server server = Server.UNKNOWN;
+    private int rebootSeconds = -1;
+    private int pollTicks;
     private Backend.Account account;
 
     /** What the news panel is currently showing, so an unchanged poll can leave it alone. */
@@ -155,17 +162,25 @@ public final class LauncherFrame extends JFrame {
      */
     private void pollPlayerCount() {
         refreshPlayerCount();
-        Timer timer = new Timer(PLAYER_COUNT_POLL_MILLIS, e -> refreshPlayerCount());
+        // Every few seconds while the server is restarting or down (to say so, and that it's back,
+        // straight away); else every PLAYER_COUNT_POLL_MILLIS.
+        Timer timer = new Timer(STATUS_FAST_POLL_MILLIS, e -> {
+            pollTicks++;
+            if (server != Server.ONLINE || pollTicks * STATUS_FAST_POLL_MILLIS >= PLAYER_COUNT_POLL_MILLIS) {
+                pollTicks = 0;
+                refreshPlayerCount();
+            }
+        });
         timer.setRepeats(true);
         timer.start();
     }
 
     private void refreshPlayerCount() {
-        new SwingWorker<Integer, Void>() {
+        new SwingWorker<Backend.ServerStatus, Void>() {
             @Override
-            protected Integer doInBackground() {
+            protected Backend.ServerStatus doInBackground() {
                 try {
-                    return backend.onlinePlayers();
+                    return backend.status();
                 } catch (Exception e) {
                     return null;
                 }
@@ -173,21 +188,66 @@ public final class LauncherFrame extends JFrame {
 
             @Override
             protected void done() {
-                Integer count;
+                Backend.ServerStatus status;
                 try {
-                    count = get();
+                    status = get();
                 } catch (Exception e) {
-                    count = null;
+                    status = null;
                 }
-                if (count == null) {
+                if (status == null) {
+                    playerCountLabel.setText("The server is offline right now.");
+                    setServer(Server.DOWN, -1);
                     return;
                 }
+                int count = status.players();
                 playerCountLabel.setText(
                         count == 1
                                 ? "There is currently 1 person playing."
                                 : "There are currently " + count + " people playing.");
+                setServer(status.rebootSeconds() >= 0 ? Server.RESTARTING : Server.ONLINE, status.rebootSeconds());
             }
         }.execute();
+    }
+
+    /** The server's state changed (or its countdown ticked): the button and status follow. */
+    private void setServer(Server next, int seconds) {
+        boolean wasDown = server == Server.DOWN || server == Server.RESTARTING;
+        server = next;
+        rebootSeconds = seconds;
+        if (phase != Phase.PLAY && phase != Phase.OFFLINE) {
+            return;
+        }
+        if (next == Server.ONLINE && wasDown) {
+            applyState(phase);
+            statusLabel.setText("The server is back online. Have fun!");
+        } else if (next != Server.ONLINE) {
+            applyState(phase);
+        }
+    }
+
+    /**
+     * While the server restarts for an update or is down: Play waits (a client started now would
+     * be refused, or thrown out when the countdown ends), and the status says why.
+     */
+    private boolean showServerState() {
+        switch (server) {
+            case RESTARTING -> {
+                statusLabel.setText(rebootSeconds > 0
+                        ? "The server restarts for an update in " + rebootSeconds + "s..."
+                        : "The server is restarting for an update...");
+                actionButton.setText("Updating");
+            }
+            case DOWN -> {
+                statusLabel.setText("The server is updating. It's back in a minute or two.");
+                actionButton.setText("Server offline");
+            }
+            default -> {
+                return false;
+            }
+        }
+        actionButton.setAccent(Theme.GOLD, Theme.GOLD_HOVER);
+        actionButton.setEnabled(false);
+        return true;
     }
 
     // ------------------------------------------------------------------------------ title bar ----
@@ -1399,12 +1459,14 @@ public final class LauncherFrame extends JFrame {
                 actionButton.setText("Play");
                 actionButton.setAccent(Theme.GREEN, Theme.GREEN_HOVER);
                 actionButton.setEnabled(true);
+                showServerState();
             }
             case OFFLINE -> {
                 statusLabel.setText("Offline - playing installed version");
                 actionButton.setText("Play");
                 actionButton.setAccent(Theme.GREEN, Theme.GREEN_HOVER);
                 actionButton.setEnabled(true);
+                showServerState();
             }
             case WORKING -> {
                 actionButton.setText("Working");
@@ -1461,6 +1523,7 @@ public final class LauncherFrame extends JFrame {
 
     /** Half a minute. Often enough to feel live, rare enough to be nothing on the server. */
     private static final int PLAYER_COUNT_POLL_MILLIS = 30_000;
+    private static final int STATUS_FAST_POLL_MILLIS = 5_000;
 
     /**
      * A minute. The server caches the Discord read for five, so this never reaches Discord — it
