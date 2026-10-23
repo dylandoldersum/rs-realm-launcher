@@ -101,9 +101,11 @@ public final class LauncherFrame extends JFrame {
     private final JPanel tabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 14));
     private final HomePanel homePanel = new HomePanel(() -> showTab(TAB_NEWS));
     private final StorePanel storePanel = new StorePanel(backend);
+    private final TradingPostPanel tradingPostPanel = new TradingPostPanel(backend);
     private final TabButton homeTab = new TabButton("Home", () -> showTab(TAB_HOME));
     private final TabButton storeTab = new TabButton("Store", () -> showTab(TAB_STORE));
     private final TabButton newsTab = new TabButton("News", () -> showTab(TAB_NEWS));
+    private final TabButton tradingPostTab = new TabButton("Trading Post", () -> showTab(TAB_TRADING_POST));
     // Overlay labels: these three sit on the artwork, not on a panel. See Theme.OverlayLabel.
     private final Theme.OverlayLabel statusLabel =
             new Theme.OverlayLabel(" ", SwingConstants.CENTER);
@@ -137,6 +139,7 @@ public final class LauncherFrame extends JFrame {
         center.add(homePanel, TAB_HOME);
         center.add(storePanel, TAB_STORE);
         center.add(newsPanel, TAB_NEWS);
+        center.add(tradingPostPanel, TAB_TRADING_POST);
         root.add(center, BorderLayout.CENTER);
         showTab(TAB_HOME);
         root.add(buildSidePanel(), BorderLayout.EAST);
@@ -264,11 +267,12 @@ public final class LauncherFrame extends JFrame {
         JComponent title = buildTitleMark();
         bar.add(title, BorderLayout.WEST);
 
-        // Home, Store and News. Running the server (store, news, players) is the admin website's.
+        // Home, Store, News and the Trading Post (read-only). Running the server (store, news, players) is the admin website's.
         tabs.setOpaque(false);
         tabs.add(homeTab);
         tabs.add(storeTab);
         tabs.add(newsTab);
+        tabs.add(tradingPostTab);
         bar.add(tabs, BorderLayout.CENTER);
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 12));
@@ -1134,8 +1138,12 @@ public final class LauncherFrame extends JFrame {
         homeTab.setSelected(TAB_HOME.equals(name));
         storeTab.setSelected(TAB_STORE.equals(name));
         newsTab.setSelected(TAB_NEWS.equals(name));
+        tradingPostTab.setSelected(TAB_TRADING_POST.equals(name));
         if (TAB_STORE.equals(name)) {
             storePanel.load();
+        }
+        if (TAB_TRADING_POST.equals(name)) {
+            tradingPostPanel.load();
         }
     }
 
@@ -1541,6 +1549,7 @@ public final class LauncherFrame extends JFrame {
     private static final String TAB_HOME = "home";
     private static final String TAB_STORE = "store";
     private static final String TAB_NEWS = "news";
+    private static final String TAB_TRADING_POST = "trading-post";
 
     /** Discord's brand blurple, so the sign-in button reads as "this opens Discord". */
     private static final Color DISCORD = new Color(0x58, 0x65, 0xF2);

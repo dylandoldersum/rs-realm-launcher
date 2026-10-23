@@ -158,6 +158,57 @@ public final class Backend {
         return Json.str(body, "sidebar", null);
     }
 
+    /**
+     * One Trading Post offer: [quantity] of [item] at [price] coins each, from [seller]; or, when
+     * [buy], a buy offer: [seller] wants to buy them.
+     */
+    public record TradingPostOffer(int obj, String item, int price, int quantity, String seller, boolean sellerOnline, long listedAt, boolean buy) {}
+
+    /** One Trading Post sale. */
+    public record TradingPostTrade(int obj, String item, int quantity, int price, String seller, String buyer, long tradedAt) {}
+
+    /** The Trading Post's open offers, sell and buy (an item name holding [query], or everything), cheapest first. */
+    public List<TradingPostOffer> tradingPostOffers(String query) throws IOException {
+        String q = query == null ? "" : java.net.URLEncoder.encode(query.trim(), java.nio.charset.StandardCharsets.UTF_8);
+        Map<String, Object> body = send("GET", "/launcher/trading-post/offers?kind=all" + (q.isEmpty() ? "" : "&q=" + q), null);
+        List<TradingPostOffer> out = new ArrayList<>();
+        for (Map<String, Object> o : Json.objects(body, "offers")) {
+            out.add(new TradingPostOffer(
+                    Json.number(o, "obj", -1),
+                    Json.str(o, "item", ""),
+                    Json.number(o, "price", 0),
+                    Json.number(o, "quantity", 0),
+                    Json.str(o, "seller", ""),
+                    Json.bool(o, "seller_online", false),
+                    millis(o, "listed_at"),
+                    "buy".equals(Json.str(o, "kind", "sell"))));
+        }
+        return out;
+    }
+
+    /** The Trading Post's latest sales. */
+    public List<TradingPostTrade> tradingPostRecent() throws IOException {
+        Map<String, Object> body = send("GET", "/launcher/trading-post/recent", null);
+        List<TradingPostTrade> out = new ArrayList<>();
+        for (Map<String, Object> t : Json.objects(body, "trades")) {
+            out.add(new TradingPostTrade(
+                    Json.number(t, "obj", -1),
+                    Json.str(t, "item", ""),
+                    Json.number(t, "quantity", 0),
+                    Json.number(t, "price", 0),
+                    Json.str(t, "seller", ""),
+                    Json.str(t, "buyer", ""),
+                    millis(t, "traded_at")));
+        }
+        return out;
+    }
+
+    /** A time in epoch millis (JSON numbers arrive as doubles). */
+    private static long millis(Map<String, Object> obj, String key) {
+        Object value = obj.get(key);
+        return value instanceof Double ? (long) (double) (Double) value : 0L;
+    }
+
     /** The featured update (the Home tab's banner, set on the admin website), or null when there is none. */
     public News featured() throws IOException {
         Map<String, Object> body = send("GET", "/launcher/featured", null);
