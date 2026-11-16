@@ -72,6 +72,12 @@ public final class GameClient {
                 command.add("-Drsrealm.jagexmode=true");
             }
         }
+        // The client look picked in the launcher (Look: OSRS / 634 HD): the agent asks the server for
+        // that look's cache and keeps it apart; 117 HD presets the same look.
+        String look = ClientLook.property();
+        if (look != null) {
+            command.add("-Drsrealm.look=" + look);
+        }
         command.add("-jar");
         command.add(Config.CLIENT_JAR.toString());
 

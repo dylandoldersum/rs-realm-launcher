@@ -371,6 +371,9 @@ public final class LauncherFrame extends JFrame {
         side.add(buildCharacterRow());
         side.add(Box.createVerticalStrut(16));
 
+        side.add(buildLookRow());
+        side.add(Box.createVerticalStrut(16));
+
         progress.setVisible(false);
         progress.setAlignmentX(Component.CENTER_ALIGNMENT);
         side.add(progress);
@@ -432,6 +435,35 @@ public final class LauncherFrame extends JFrame {
     }
 
     private JComponent characterWrapper;
+
+    private final Dropdown<String> lookBox = new Dropdown<>(look -> look);
+
+    /**
+     * "Look" + OSRS / 634 HD: which client cache the next Play starts with (ClientLook). Both looks
+     * play in the same world; switching takes a client restart.
+     */
+    private JComponent buildLookRow() {
+        JPanel wrapper = new JPanel();
+        wrapper.setOpaque(false);
+        wrapper.setLayout(new BoxLayout(wrapper, BoxLayout.Y_AXIS));
+        wrapper.setAlignmentX(Component.CENTER_ALIGNMENT);
+        wrapper.setMaximumSize(new Dimension(Integer.MAX_VALUE, 74));
+
+        JLabel label = new Theme.OverlayLabel("Look", SwingConstants.LEFT);
+        label.setFont(Theme.SMALL);
+        label.setAlignmentX(Component.LEFT_ALIGNMENT);
+        wrapper.add(label);
+        wrapper.add(Box.createVerticalStrut(6));
+
+        lookBox.setItems(ClientLook.CHOICES);
+        lookBox.setSelected(ClientLook.load());
+        lookBox.setOnSelect(ClientLook::save);
+        lookBox.setToolTipText("OSRS, or the 634 HD look (2010's models, animations and Lumbridge). Takes effect on the next Play.");
+        lookBox.setAlignmentX(Component.LEFT_ALIGNMENT);
+        lookBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+        wrapper.add(lookBox);
+        return wrapper;
+    }
 
     /** The crest in the title bar, with the brand name as the fallback if the art is missing. */
     private JComponent buildTitleMark() {
